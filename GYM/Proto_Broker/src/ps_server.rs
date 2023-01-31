@@ -22,7 +22,7 @@ pub fn listen(port : String) -> TcpListener {
 }
 
 pub fn handle_client(stream : &TcpStream){
-    let bytes:Vec<u8> = vec![];
-    receive_bytes(&stream, &bytes);
+    let mut bytes:Vec<u8> = vec![];
+    receive_bytes(&stream, &mut bytes);
     println!("{}", String::from_utf8(bytes).unwrap());
 }
