@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::net::TcpStream;
 
 use uuid::Uuid;
@@ -37,17 +36,7 @@ impl Client {
     }
 
     pub fn send_bytes(&self, bytes: &[u8]) -> bool{
-        let size = self.stream.unwrap().write(bytes);
-        if size.is_err() {
-            println!("{}", size.unwrap_err());
-            return false;
-        }
-        let mut percentage = 0;
-        if bytes.len() > 0 {
-            percentage = (size.unwrap() / bytes.len()) * 100;
-        }
-        println!("{percentage}% bytes sent");
-        return true;
+        ps_common::send_bytes(&self.stream.as_ref().unwrap(), bytes)
     }
 
 }
