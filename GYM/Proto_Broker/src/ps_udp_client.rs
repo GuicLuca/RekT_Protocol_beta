@@ -17,11 +17,13 @@ impl Client {
 
     pub fn connect(&mut self, ip: &String, port: &String) {
         let addr = format!("{}:{}", ip.trim(), port.trim());
-        let ret = UdpSocket::bind(addr.clone());
-        match ret {
+        let ret = UdpSocket::bind(format!("0.0.0.0:10201"));
+        match ret{
             Ok(socket) => {
                 println!("connected to {addr}");
                 self.socket = Some(socket);
+                self.socket.as_ref().unwrap().connect(addr.clone()).expect("wow");
+
             }
             Err(e) => {
                 println!("Error connecting to {addr}");
