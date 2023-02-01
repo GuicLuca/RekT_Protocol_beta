@@ -2,28 +2,31 @@ use std::net::UdpSocket;
 use uuid::Uuid;
 
 pub struct Client {
-    id: Option<Uuid>,
-    socket: Option<UdpSocket>,
+    id: Uuid,
+    socket: UdpSocket,
 }
 
 impl Client {
 
-    pub const fn new() -> Client {
+    pub const fn new(id: Uuid, stream: UdpSocket) -> Client {
         Client{
-            id: None,
-            socket: None
+            id: id,
+            socket: stream
         }
     }
 
-    pub fn connect(&mut self, ip: &String, port: &String) {
-        let addr = format!("{}:{}", ip.trim(), port.trim());
-        let ret = UdpSocket::bind(format!("0.0.0.0:10201"));
+    pub fn connect(addr : String) -> Client {
+        let x = format!("0.0.0.0:{}", addr.rsplit_once(':').unwrap().1);
+        println!("{}", x);
+        let ret = UdpSocket::bind(x);
         match ret{
             Ok(socket) => {
                 println!("connected to {addr}");
-                self.socket = Some(socket);
-                self.socket.as_ref().unwrap().connect(addr.clone()).expect("wow");
+                let mut socket = socket;
+                socket.connect(addr.clone()).expect("wow");
+                // Todo receive le Uuid from server
 
+                return Client::new(Uuid::new_v4(), socket);
             }
             Err(e) => {
                 println!("Error connecting to {addr}");
@@ -34,8 +37,7 @@ impl Client {
     }
 
     pub fn send_bytes(&self, bytes: &[u8], remote_addr: &String) -> bool {
-        let socket = self.socket.as_ref().unwrap();
-        let size = socket.send_to(bytes, remote_addr);
+        let size = self.socket.send_to(bytes, remote_addr);
         if size.is_err() {
             println!("{}", size.unwrap_err());
             return false;

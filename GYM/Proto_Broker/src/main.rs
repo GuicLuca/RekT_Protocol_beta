@@ -30,8 +30,7 @@ fn main() {
         let full_addr = format!("{}:{}", addr.trim(), port.trim());
 
 
-        let mut client = Client::new();
-        client.connect(&addr, &port);
+        let mut client = Client::connect(full_addr.clone());
         let mut aa = 0;
         loop {
             let str = format!("tbougo{aa}");
