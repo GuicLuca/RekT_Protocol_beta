@@ -46,9 +46,11 @@ impl Server {
                         println!("New connection: {}", stream.peer_addr().unwrap());
                         thread::spawn(move || {
                             // connection succeeded
-                            let mut bytes: Vec<u8> = vec![];
-                            ps_common::receive_bytes(&stream, &mut bytes);
-                            println!("{}", String::from_utf8(bytes).unwrap());
+                            loop {
+                                let mut bytes: Vec<u8> = vec![];
+                                ps_common::receive_bytes(&stream, &mut bytes);
+                                println!("{}", String::from_utf8(bytes).unwrap());
+                            }
                         });
                     }
                     Err(e) => {
