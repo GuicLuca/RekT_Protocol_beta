@@ -1,11 +1,9 @@
-use std::net::TcpStream;
-
+use std::net::UdpSocket;
 use uuid::Uuid;
-use crate::ps_common;
 
 pub struct Client {
     id: Option<Uuid>,
-    stream: Option<TcpStream>,
+    socket: Option<UdpSocket>,
 }
 
 impl Client {
@@ -13,7 +11,7 @@ impl Client {
     pub const fn new() -> Client {
         Client{
             id: None,
-            stream: None
+            socket: None
         }
     }
 
@@ -21,11 +19,11 @@ impl Client {
         let mut addr = ip.clone();
         addr.push_str(":");
         addr.push_str(port);
-        let ret = TcpStream::connect(addr.clone());
+        let ret = UdpSocket::bind(addr.clone());
         match ret {
-            Ok(stream) => {
+            Ok(socket) => {
                 println!("connected to {addr}");
-                self.stream = Some(stream);
+                self.socket = Some(socket);
             }
             Err(e) => {
                 println!("Error connecting to {addr}");
@@ -35,8 +33,9 @@ impl Client {
         }
     }
 
-    pub fn send_bytes(&self, bytes: &[u8]) -> bool{
-        let size = stream.write(bytes);
+    pub fn send_bytes(&self, bytes: &[u8], remote_addr: &String) -> bool {
+        let socket = self.socket.as_ref().unwrap();
+        let size = socket.send_to(bytes, remote_addr);
         if size.is_err() {
             println!("{}", size.unwrap_err());
             return false;
@@ -48,5 +47,6 @@ impl Client {
         println!("{percentage}% bytes sent");
         return true;
     }
+
 
 }
