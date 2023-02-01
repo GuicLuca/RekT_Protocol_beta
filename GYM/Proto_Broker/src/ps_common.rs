@@ -1,4 +1,4 @@
-use std::io::{BufRead, stdin, Write};
+use std::io::{BufRead, BufReader, stdin, Write};
 use std::net::TcpStream;
 
 use regex::Regex;
@@ -15,12 +15,8 @@ pub fn send_bytes(mut stream: &TcpStream, bytes: &[u8]) -> bool {
     return true;
 }
 
-pub fn receive_bytes(mut stream: &TcpStream, bytes: &mut Vec<u8>) {
-    let mut reader = std::io::BufReader::new(&mut stream);
-
-    // Read current current data in the TcpStream
-    bytes.write(reader.fill_buf().unwrap()).expect("how");
-    reader.consume(bytes.len());
+pub fn receive_bytes(reader: &BufReader<TcpStream>, bytes: &mut Vec<u8>) {
+    // TODO
 }
 
 pub fn get_cli_input(prompt: &str, err_msg: &str, string_match: Option<&Vec<String>>, regex: Option<&Regex>, must_be_i16: bool) -> String {
