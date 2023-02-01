@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::net::TcpStream;
 
 use uuid::Uuid;
@@ -36,7 +37,7 @@ impl Client {
     }
 
     pub fn send_bytes(&self, bytes: &[u8]) -> bool{
-        let size = stream.write(bytes);
+        let size = self.stream.unwrap().write(bytes);
         if size.is_err() {
             println!("{}", size.unwrap_err());
             return false;
