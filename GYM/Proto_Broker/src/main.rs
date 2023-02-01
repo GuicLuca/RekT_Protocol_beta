@@ -27,7 +27,8 @@ fn main() {
 
         let mut client = Client::new();
         client.connect(&addr, &port);
-        let ret = client.send_bytes(b"coucou", &addr);
+        let addr2 = format!("{}:{}", addr.trim(), port.trim());
+        let ret = client.send_bytes(b"coucou", &addr2);
         if !ret {
             println!("byte sending failed");
         }
