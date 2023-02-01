@@ -9,8 +9,10 @@ pub fn send_bytes(mut stream: &TcpStream, bytes: &[u8]) -> bool {
         println!("{}", size.unwrap_err());
         return false;
     }
-
-    let percentage = (size.unwrap() / bytes.len()) * 100;
+    let mut percentage = 0;
+    if bytes.len() > 0 {
+        percentage = (size.unwrap() / bytes.len()) * 100;
+    }
     println!("{percentage}% bytes sent");
     return true;
 }
