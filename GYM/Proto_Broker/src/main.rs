@@ -1,10 +1,10 @@
-use std::thread;
-
 use regex::Regex;
 
+use crate::ps_server::Server;
+
 mod ps_client;
-mod ps_server;
 mod ps_common;
+mod ps_server;
 
 fn main() {
     println!("Broker_test");
@@ -13,24 +13,10 @@ fn main() {
 
     if is_server {
         let port = ps_common::get_cli_input("Input port : ", "wtf", None, None, true);
-        let listener = ps_server::listen(port);
-        loop {
-            for ret in listener.incoming() {
-                match ret {
-                    Ok(stream) => {
-                        println!("New connection: {}", stream.peer_addr().unwrap());
-                        thread::spawn(move || {
-                            // connection succeeded
-                            ps_server::handle_client(&stream)
-                        });
-                    }
-                    Err(e) => {
-                        println!("Error: {}", e);
-                        /* connection failed */
-                    }
-                }
-            }
-        }
+
+        let mut serv = Server::new("0.0.0.0".to_string(), port.parse::<i16>().unwrap());
+
+        serv.serve();
     } else {
         let reg = Regex::new(r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$").unwrap();
 
