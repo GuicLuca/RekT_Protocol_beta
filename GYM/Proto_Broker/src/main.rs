@@ -6,6 +6,7 @@ use crate::ps_udp_server::Server;
 mod ps_common;
 mod ps_udp_server;
 mod ps_udp_client;
+mod ps_client;
 
 fn main() {
     println!("Broker_test");

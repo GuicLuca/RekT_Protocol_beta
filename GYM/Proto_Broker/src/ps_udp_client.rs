@@ -16,9 +16,7 @@ impl Client {
     }
 
     pub fn connect(&mut self, ip: &String, port: &String) {
-        let mut addr = ip.clone();
-        addr.push_str(":");
-        addr.push_str(port);
+        let addr = format!("{}:{}", ip.trim(), port.trim());
         let ret = UdpSocket::bind(addr.clone());
         match ret {
             Ok(socket) => {
