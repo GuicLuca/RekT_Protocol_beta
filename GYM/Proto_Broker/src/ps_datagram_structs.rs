@@ -1,0 +1,15 @@
+enum MessageType {
+    CONNECT = 0xF0,
+    CONNECT_ACK = 0xF1,
+    OPEN_STREAM = 0xF2,
+    SHUTDOWN = 0xFF,
+    HEARTBEAT = 0x01,
+    HEARTBEAT_REQUEST = 0x41,
+    PING = 0x02,
+    PONG = 0x42,
+    TOPIC_REQUEST = 0x07,
+    TOPIC_REQUEST_ACK = 0x47,
+    OBJECT_REQUEST = 0x08,
+    OBJECT_REQUEST_ACK = 0x48,
+    DATA = 0x05
+}

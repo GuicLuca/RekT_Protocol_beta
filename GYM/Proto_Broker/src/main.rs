@@ -10,6 +10,7 @@ mod ps_common;
 mod ps_udp_server;
 mod ps_udp_client;
 mod ps_client;
+mod ps_datagram_structs;
 
 fn main() {
     println!("Broker_test");
