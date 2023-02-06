@@ -23,6 +23,13 @@ pub enum MessageType {
     DATA = 0x05
 }
 
+// End connexion reasons are used to
+// detail the reason of the shutdown request.
+pub enum EndConnexionReason {
+    APPLICATION_SHUTDOWN = 0x00,
+    APPLICATION_ERROR = 0x01,
+}
+
 pub struct Size{
     size:i16
 }
@@ -51,16 +58,33 @@ impl RQ_Connect {
     }
 }
 
-pub struct RQ_Connect_ACK{
+
+
+// Sent to acknowledge the connexion
+pub struct RQ_Connect_ACK_OK{
     message_type: MessageType,
+    status: i8,
+    peer_id:i64,
     heartbeat_period: i16,
 }
-impl RQ_Connect_ACK {
-    pub const fn new(heartbeat_period:i16)-> RQ_Connect_ACK {
-        RQ_Connect_ACK{message_type:MessageType::CONNECT_ACK, heartbeat_period}
+impl RQ_Connect_ACK_OK {
+    pub const fn new(peer_id:i64, heartbeat_period: i16)-> RQ_Connect_ACK_OK {
+        RQ_Connect_ACK_OK{message_type:MessageType::CONNECT_ACK, status: 0x00, peer_id, heartbeat_period}
+    }
+}
+pub struct RQ_Connect_ACK_ERROR{
+    message_type: MessageType,
+    status: i8,
+    message_size: Size,
+    reason: Vec<u8>,
+}
+impl RQ_Connect_ACK_ERROR {
+    pub const fn new(message_size:Size, reason: Vec<u8>)-> RQ_Connect_ACK_ERROR {
+        RQ_Connect_ACK_ERROR{message_type:MessageType::CONNECT_ACK, status: 0xFF, message_size, reason}
     }
 }
 
+// Sent to maintain the connexion
 pub struct RQ_Heartbeat{
     message_type: MessageType,
 }
@@ -70,6 +94,8 @@ impl RQ_Heartbeat {
     }
 }
 
+// Sent to request a Heartbeat if a pear do not recive his
+// normal heartbeat.
 pub struct RQ_Heartbeat_Request{
     message_type: MessageType,
 }
@@ -79,6 +105,7 @@ impl RQ_Heartbeat_Request {
     }
 }
 
+// Sent to measure the latency between peer and broker
 pub struct RQ_Ping{
     message_type: MessageType,
     ping_id:i8,
@@ -89,6 +116,7 @@ impl RQ_Ping {
     }
 }
 
+// Sent to answer a ping request.
 pub struct RQ_Pong{
     message_type: MessageType,
     ping_id:i8,
@@ -98,3 +126,16 @@ impl RQ_Pong {
         RQ_Ping{message_type:MessageType::PONG, ping_id}
     }
 }
+
+// Sent to close the connexion between peer and broker
+pub struct RQ_Shutdown{
+    message_type: MessageType,
+    reason: EndConnexionReason,
+}
+impl RQ_Shutdown {
+    pub const fn new(reason: EndConnexionReason)-> RQ_Shutdown {
+        RQ_Shutdown{message_type:MessageType::SHUTDOWN, reason}
+    }
+}
+
+// Sent to open a new stream
