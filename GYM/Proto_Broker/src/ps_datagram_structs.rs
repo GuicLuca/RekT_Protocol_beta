@@ -30,11 +30,33 @@ pub enum EndConnexionReason {
     APPLICATION_ERROR = 0x01,
 }
 
+// End connexion reasons are used to
+// detail the reason of the shutdown request.
+pub enum StreamType {
+    MANAGEMENT = 0x00,
+    RELIABLE_DATA = 0x01,
+    UNRELIABLE_DATA = 0x02,
+}
+
+// Topics action are all actions that
+// a peer can do in a TOPICS_REQUEST
+pub enum TopicsAction {
+    SUBSCRIBE = 0x00,
+    UNSUBSCRIBE = 0xFF,
+}
+
+// Topics response are all possible response
+// type to a TOPICS_REQUEST
+pub enum TopicsResponse {
+    SUCCESS = 0x00,
+    FAILURE = 0xF0,
+}
+
 pub struct Size{
-    size:i16
+    size:u16
 }
 impl Size {
-    pub const fn new(size:i16) -> Size {
+    pub const fn new(size:u16) -> Size {
         Size {
             size,
         }
@@ -48,7 +70,7 @@ impl Size {
 *
 ** ================================*/
 
-// Sent to connect to a peer to the server
+//===== Sent to connect to a peer to the server
 pub struct RQ_Connect{
     message_type: MessageType,
 }
@@ -58,23 +80,21 @@ impl RQ_Connect {
     }
 }
 
-
-
-// Sent to acknowledge the connexion
+//===== Sent to acknowledge the connexion
 pub struct RQ_Connect_ACK_OK{
     message_type: MessageType,
-    status: i8,
-    peer_id:i64,
-    heartbeat_period: i16,
+    status: u8,
+    peer_id:u64,
+    heartbeat_period: u16,
 }
 impl RQ_Connect_ACK_OK {
-    pub const fn new(peer_id:i64, heartbeat_period: i16)-> RQ_Connect_ACK_OK {
+    pub const fn new(peer_id:u64, heartbeat_period: u16)-> RQ_Connect_ACK_OK {
         RQ_Connect_ACK_OK{message_type:MessageType::CONNECT_ACK, status: 0x00, peer_id, heartbeat_period}
     }
 }
 pub struct RQ_Connect_ACK_ERROR{
     message_type: MessageType,
-    status: i8,
+    status: u8,
     message_size: Size,
     reason: Vec<u8>,
 }
@@ -84,7 +104,7 @@ impl RQ_Connect_ACK_ERROR {
     }
 }
 
-// Sent to maintain the connexion
+//===== Sent to maintain the connexion
 pub struct RQ_Heartbeat{
     message_type: MessageType,
 }
@@ -94,7 +114,7 @@ impl RQ_Heartbeat {
     }
 }
 
-// Sent to request a Heartbeat if a pear do not recive his
+//===== Sent to request a Heartbeat if a pear do not recive his
 // normal heartbeat.
 pub struct RQ_Heartbeat_Request{
     message_type: MessageType,
@@ -105,29 +125,29 @@ impl RQ_Heartbeat_Request {
     }
 }
 
-// Sent to measure the latency between peer and broker
+//===== Sent to measure the latency between peer and broker
 pub struct RQ_Ping{
     message_type: MessageType,
-    ping_id:i8,
+    ping_id:u8,
 }
 impl RQ_Ping {
-    pub const fn new(ping_id:i8)-> RQ_Ping {
+    pub const fn new(ping_id:u8)-> RQ_Ping {
         RQ_Ping{message_type:MessageType::PING, ping_id}
     }
 }
 
-// Sent to answer a ping request.
+//===== Sent to answer a ping request.
 pub struct RQ_Pong{
     message_type: MessageType,
-    ping_id:i8,
+    ping_id:u8,
 }
 impl RQ_Pong {
-    pub const fn new(ping_id:i8)-> RQ_Ping {
+    pub const fn new(ping_id:u8)-> RQ_Ping {
         RQ_Ping{message_type:MessageType::PONG, ping_id}
     }
 }
 
-// Sent to close the connexion between peer and broker
+//===== Sent to close the connexion between peer and broker
 pub struct RQ_Shutdown{
     message_type: MessageType,
     reason: EndConnexionReason,
@@ -138,4 +158,77 @@ impl RQ_Shutdown {
     }
 }
 
-// Sent to open a new stream
+//===== Sent to open a new stream
+pub struct RQ_OpenStream{
+    message_type: MessageType,
+    stream_type: StreamType,
+}
+impl RQ_OpenStream {
+    pub const fn new(stream_type: StreamType)-> RQ_OpenStream {
+        RQ_OpenStream{message_type:MessageType::OPEN_STREAM, stream_type}
+    }
+}
+
+//===== Sent to subscribe/unsubscribe to a topic
+pub struct RQ_TopicRequest{
+    message_type: MessageType,
+    action: TopicsAction,
+    topic_id: u64
+}
+impl RQ_TopicRequest {
+    pub const fn new(action: TopicsAction, topic_id: u64)-> RQ_TopicRequest {
+        RQ_TopicRequest{message_type:MessageType::TOPIC_REQUEST, action, topic_id}
+    }
+}
+
+//===== Sent to acknowledge a TOPIC_REQUEST
+pub struct RQ_TopicRequest_ACK{
+    message_type: MessageType,
+    status: TopicsResponse,
+    topic_id: u64
+}
+impl RQ_TopicRequest_ACK {
+    pub const fn new(status: TopicsResponse, topic_id: u64)-> RQ_TopicRequest_ACK {
+        RQ_TopicRequest_ACK{message_type:MessageType::TOPIC_REQUEST_ACK, status, topic_id}
+    }
+}
+
+
+
+/*
+//===== Sent to acknowledge a TOPIC_REQUEST
+pub struct RQ_ObjectRequest{
+    message_type: MessageType,
+    status: TopicsResponse,
+    topic_id: u64
+}
+impl RQ_ObjectRequest {
+    pub const fn new(status: TopicsResponse, topic_id: u64)-> RQ_ObjectRequest {
+        RQ_ObjectRequest{message_type:MessageType::OBJECT_REQUEST, status, topic_id}
+    }
+}
+
+//===== Sent to acknowledge a TOPIC_REQUEST
+pub struct RQ_ObjectRequest_ACK{
+    message_type: MessageType,
+    status: TopicsResponse,
+    topic_id: u64
+}
+impl RQ_ObjectRequest_ACK {
+    pub const fn new(status: TopicsResponse, topic_id: u64)-> RQ_ObjectRequest_ACK {
+        RQ_ObjectRequest_ACK{message_type:MessageType::OBJECT_REQUEST_ACK, status, topic_id}
+    }
+}
+
+//===== Sent to acknowledge a TOPIC_REQUEST
+pub struct RQ_Data{
+    message_type: MessageType,
+    status: TopicsResponse,
+    topic_id: u64
+}
+impl RQ_Data {
+    pub const fn new(status: TopicsResponse, topic_id: u64)-> RQ_Data {
+        RQ_Data{message_type:MessageType::TOPIC_REQUEST_ACK, status, topic_id}
+    }
+}
+*/
