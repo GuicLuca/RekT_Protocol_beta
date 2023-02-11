@@ -1,11 +1,14 @@
 use std::collections::HashMap;
-use std::net::UdpSocket;
+use std::net::{SocketAddr, UdpSocket};
+use crate::ps_datagram_structs::RQ_Connect_ACK_OK;
 
 pub struct Server {
     address: String,
     port: i16,
     state: HashMap<i64, Vec<i64>>,
     socket: UdpSocket,
+    hashmap : HashMap<u64,SocketAddr>,
+    last_id : u64
 }
 
 impl Server {
@@ -15,6 +18,8 @@ impl Server {
             port,
             state: Default::default(),
             socket,
+            hashmap : HashMap::new(),
+            last_id : 0,
         }
     }
 
@@ -33,14 +38,24 @@ impl Server {
             }
         }
     }
+    fn get_new_id(&mut self) -> u64{
+        let id = self.last_id+1;
+        self.last_id = id;
+        return id;
+    }
+    pub fn main_loop(&mut self) {
 
-    pub fn main_loop(&self) {
         loop {
             let mut buf = [0; 1024];
             match self.socket.recv_from(&mut buf) {
                 Ok((n, src)) => {
                     println!("Received {} bytes from {}", n, src);
-                    println!("{}", String::from_utf8_lossy(&buf[..n]));
+                    let uuid = self.get_new_id();
+                    self.hashmap.insert(uuid,src);
+                    let RQ_ConnectACK = RQ_Connect_ACK_OK::new(uuid,1);
+                    let result = self.socket.send_to(&RQ_ConnectACK.as_bytes(),src);
+                    println!("Send {} bytes",result.unwrap());
+                    //println!("{}", String::from_utf8_lossy(&buf[..n]));
                 }
                 Err(e) => {
                     println!("Error: {}", e);

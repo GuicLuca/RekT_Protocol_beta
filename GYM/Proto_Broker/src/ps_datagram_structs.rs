@@ -1,5 +1,5 @@
-use core::panicking::panic;
-use hex::FromHex;
+
+#![allow(non_camel_case_types)]
 
 /** ==================================
  *
@@ -63,7 +63,6 @@ impl From<MessageType> for u8 {
             MessageType::OBJECT_REQUEST => 0x08,
             MessageType::OBJECT_REQUEST_ACK => 0x48,
             MessageType::DATA => 0x05,
-            _ => panic!("Should not happen")
         }
     }
 }
@@ -82,7 +81,6 @@ impl From<ConnectStatus> for u8 {
         match value {
             ConnectStatus::SUCCESS => 0x00,
             ConnectStatus::FAILURE => 0xFF,
-            _ => panic!("Should not happend")
         }
     }
 }
@@ -121,7 +119,6 @@ impl From<EndConnexionReason> for u8 {
         match value {
              EndConnexionReason::APPLICATION_SHUTDOWN => 0x00,
              EndConnexionReason::APPLICATION_ERROR => 0x01,
-            _ => panic!("Should not happen")
         }
     }
 }
@@ -151,7 +148,6 @@ impl From<StreamType> for u8{
             StreamType::MANAGEMENT => 0x00,
             StreamType::RELIABLE_DATA => 0x01,
             StreamType::UNRELIABLE_DATA => 0x02,
-            _ => panic!("Should not happen")
         }
     }
 }
@@ -169,7 +165,6 @@ impl From<TopicsAction> for u8{
         match value {
             TopicsAction::SUBSCRIBE => 0x00,
             TopicsAction::UNSUBSCRIBE => 0xFF,
-            _ => panic!("Should not happend")
         }
     }
 }
@@ -196,7 +191,6 @@ impl From<TopicsResponse> for u8 {
         match value {
             TopicsResponse::SUCCESS => 0x00,
             TopicsResponse::FAILURE => 0xF0,
-            _ => panic!("Should not happend")
         }
     }
 }

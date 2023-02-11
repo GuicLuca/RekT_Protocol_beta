@@ -23,12 +23,12 @@ impl Client {
         match ret{
             Ok(socket) => {
                 println!("connected to {}", addr);
-                let mut socket = socket;
+                let socket = socket;
                 socket.connect(addr.clone()).expect("wow");
 
                 // 1 - send Connect datagrams
-                let connectRequest = RQ_Connect::new();
-                socket.send(&connectRequest.as_bytes());
+                let connect_request = RQ_Connect::new();
+                socket.send(&connect_request.as_bytes());
                 // ... server answer with a connect_ack_STATUS
                 let buffer:&mut[u8] = Default::default();
                 socket.recv_from(buffer);
@@ -37,14 +37,19 @@ impl Client {
                 match message_type {
                     MessageType::CONNECT_ACK =>{
                         println!("Connect_Ack received !");
-                        let isSuccesfull = ConnectStatus::from(*buffer.to_vec().get(1).unwrap());
-                        match isSuccesfull {
+                        let is_succesfull = ConnectStatus::from(*buffer.to_vec().get(1).unwrap());
+                        match is_succesfull {
                             ConnectStatus::SUCCESS => {
-
+                                let peer_id = Uuid::from_slice_le(&buffer[2..10]).expect("The uuid is incorrect");
+                                return Client::new(peer_id, socket);
                             }
                             ConnectStatus::FAILURE => {
-                                //todo : get la reason qui fait message_size length.
-                                // puis l'afficher.
+                                let mut arr = [0u8; 2];
+                                arr.copy_from_slice(&buffer[3..4]);
+                                let message_size = u16::from_le_bytes(arr);
+                                let index : usize = 5usize+usize::from(message_size);
+                                let reason = &buffer[5usize..(index)];
+                                println!("ERROR with the CONNECT Packet : {}",String::from_utf8(reason.to_vec()).expect("Can't convert reason to string"));
                             }
                         }
                     }
@@ -53,8 +58,8 @@ impl Client {
 
 
 
+                panic!("The client can't be constructed");
 
-                return Client::new(Uuid::new_v4(), socket);
             }
             Err(e) => {
                 println!("Error connecting to {}", addr);

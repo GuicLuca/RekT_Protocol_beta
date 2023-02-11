@@ -22,7 +22,7 @@ fn main() {
     if is_server {
         let port = ps_common::get_cli_input("Input port : ", "wtf", None, None, true);
 
-        let serv = Server::serve("0.0.0.0".to_string(), port.parse::<i16>().unwrap());
+        let mut serv = Server::serve("0.0.0.0".to_string(), port.parse::<i16>().unwrap());
         serv.main_loop()
     } else {
         let reg = Regex::new(r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$").unwrap();
@@ -33,7 +33,7 @@ fn main() {
         let full_addr = format!("{}:{}", addr.trim(), port.trim());
 
 
-        let mut client = Client::connect(full_addr.clone());
+        let client = Client::connect(full_addr.clone());
         let mut aa = 0;
         loop {
             let str = format!("tbougo{aa}");

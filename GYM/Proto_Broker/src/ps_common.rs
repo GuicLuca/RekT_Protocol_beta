@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, stdin, Write};
+use std::io::{ stdin, Write};
 use std::net::TcpStream;
 
 
@@ -17,11 +17,11 @@ pub fn send_bytes(mut stream: &TcpStream, bytes: &[u8]) -> bool {
     println!("{percentage}% bytes sent");
     return true;
 }
-
+/*
 pub fn receive_bytes(reader: &BufReader<TcpStream>, bytes: &mut Vec<u8>) {
     // TODO
 }
-
+*/
 pub fn get_cli_input(prompt: &str, err_msg: &str, string_match: Option<&Vec<String>>, regex: Option<&Regex>, must_be_i16: bool) -> String {
     let mut is_valid = false;
     let mut value = String::new();
