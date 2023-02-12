@@ -16,6 +16,39 @@ impl Client {
         }
     }
 
+    fn CreateClientFromConnectResponse(socket: UdpSocket, buffer: &[u8]) -> Client {
+        // Get the packet type from the message type
+        let message_type = MessageType::from(*buffer.to_vec().first().unwrap());
+        match message_type {
+            MessageType::CONNECT_ACK =>{
+                println!("Connect_Ack received !");
+                let is_succesfull = ConnectStatus::from(*buffer.to_vec().get(1).unwrap());
+                match is_succesfull {
+                    ConnectStatus::SUCCESS => {
+                        // Copy a part of the buffer to an array to convert it to u64
+                        let mut arr = [0u8; 8];
+                        arr.copy_from_slice(&buffer[2..10]);
+                        let peer_id = u64::from_le_bytes(arr);
+                        return Client::new(peer_id, socket);
+                    }
+                    ConnectStatus::FAILURE => {
+                        // Copy a part of the buffer to an array to convert it to u16
+                        let mut arr = [0u8; 2];
+                        arr.copy_from_slice(&buffer[2..4]);
+                        let message_size = u16::from_le_bytes(arr);
+                        let index : usize = 5usize+usize::from(message_size);
+                        let reason = &buffer[5usize..(index)];
+                        println!("ERROR with the CONNECT Packet : {}",String::from_utf8(reason.to_vec()).expect("Can't convert reason to string"));
+                        panic!("The client can't be constructed");
+                    }
+                }
+            }
+            _ => {
+                panic!("The packet is not standard");
+            }
+        }
+    }
+
     pub fn connect(addr : String) -> Client {
         let addr1 = format!("0.0.0.0:{}", addr.rsplit_once(':').unwrap().1);
         println!("{}", addr1);
@@ -32,39 +65,7 @@ impl Client {
                 // ... server answer with a connect_ack_STATUS
                 let mut buffer = [0; 1024];
                 socket.recv_from(&mut buffer);
-                println!("size is :{}",&buffer.len());
-                let message_type = MessageType::from(*buffer.to_vec().first().unwrap());
-                match message_type {
-                    MessageType::CONNECT_ACK =>{
-                        println!("Connect_Ack received !");
-                        let is_succesfull = ConnectStatus::from(*buffer.to_vec().get(1).unwrap());
-                        match is_succesfull {
-                            ConnectStatus::SUCCESS => {
-                                let mut arr = [0u8; 8];
-                                arr.copy_from_slice(&buffer[2..10]);
-                                println!("value : {}",arr.len());
-                                let peer_id = u64::from_le_bytes(arr);
-                                return Client::new(peer_id, socket);
-                            }
-                            ConnectStatus::FAILURE => {
-
-                                let mut arr = [0u8; 2];
-                                println!("{:?}",buffer);
-                                arr.copy_from_slice(&buffer[2..4]);
-                                let message_size = u16::from_le_bytes(arr);
-                                let index : usize = 5usize+usize::from(message_size);
-                                let reason = &buffer[5usize..(index)];
-                                println!("ERROR with the CONNECT Packet : {}",String::from_utf8(reason.to_vec()).expect("Can't convert reason to string"));
-                                panic!("The client can't be constructed");
-
-                            }
-                        }
-                    }
-                    _ => {
-                        panic!("The packet is not standard");
-
-                    }
-                }
+                return Client::CreateClientFromConnectResponse(socket,&buffer);
 
 
 
