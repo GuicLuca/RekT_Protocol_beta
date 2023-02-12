@@ -1,6 +1,5 @@
-use std::io::{ stdin, Write};
+use std::io::{stdin, Write};
 use std::net::TcpStream;
-
 
 use regex::Regex;
 

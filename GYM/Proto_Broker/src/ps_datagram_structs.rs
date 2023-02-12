@@ -1,12 +1,11 @@
-
 #![allow(non_camel_case_types)]
 
 /** ==================================
- *
- *      ENUMERATIONS STRUCT &
- *         GLOBAL CLASSES
- *
- ** ================================*/
+*
+*      ENUMERATIONS STRUCT &
+*         GLOBAL CLASSES
+*
+** ================================*/
 
 // Message type are used to translate
 // request type to the corresponding code
@@ -25,9 +24,11 @@ pub enum MessageType {
     TOPIC_REQUEST_ACK,
     OBJECT_REQUEST,
     OBJECT_REQUEST_ACK,
-    DATA
+    DATA,
+    UNKNOWN,
 }
-impl From<u8> for MessageType{
+
+impl From<u8> for MessageType {
     fn from(value: u8) -> Self {
         match value {
             0xF0 => MessageType::CONNECT,
@@ -43,10 +44,11 @@ impl From<u8> for MessageType{
             0x08 => MessageType::OBJECT_REQUEST,
             0x48 => MessageType::OBJECT_REQUEST_ACK,
             0x05 => MessageType::DATA,
-            _ => panic!("Should not happen")
+            _ => MessageType::UNKNOWN
         }
     }
 }
+
 impl From<MessageType> for u8 {
     fn from(value: MessageType) -> Self {
         match value {
@@ -63,6 +65,7 @@ impl From<MessageType> for u8 {
             MessageType::OBJECT_REQUEST => 0x08,
             MessageType::OBJECT_REQUEST_ACK => 0x48,
             MessageType::DATA => 0x05,
+            MessageType::UNKNOWN => 0xAA
         }
     }
 }
@@ -75,25 +78,28 @@ impl From<MessageType> for u8 {
 pub enum ConnectStatus {
     SUCCESS,
     FAILURE,
+    UNKNOWN,
 }
+
 impl From<ConnectStatus> for u8 {
     fn from(value: ConnectStatus) -> Self {
         match value {
             ConnectStatus::SUCCESS => 0x00,
             ConnectStatus::FAILURE => 0xFF,
+            ConnectStatus::UNKNOWN => 0xAA,
         }
     }
 }
+
 impl From<u8> for ConnectStatus {
     fn from(value: u8) -> Self {
         match value {
             0x00 => ConnectStatus::SUCCESS,
             0xFF => ConnectStatus::FAILURE,
-            _ => panic!("Should not happend")
+            _ => ConnectStatus::UNKNOWN
         }
     }
 }
-
 
 
 // End connexion reasons are used to
@@ -101,24 +107,27 @@ impl From<u8> for ConnectStatus {
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum EndConnexionReason {
-    APPLICATION_SHUTDOWN,
-    APPLICATION_ERROR,
+    SHUTDOWN,
+    ERROR,
+    UNKNOWN,
 }
 
 impl From<u8> for EndConnexionReason {
     fn from(value: u8) -> Self {
         match value {
-            0x00 => EndConnexionReason::APPLICATION_SHUTDOWN,
-            0x01 => EndConnexionReason::APPLICATION_ERROR,
-            _ => panic!("Should not happen")
+            0x00 => EndConnexionReason::SHUTDOWN,
+            0x01 => EndConnexionReason::ERROR,
+            _ => EndConnexionReason::UNKNOWN,
         }
     }
 }
+
 impl From<EndConnexionReason> for u8 {
     fn from(value: EndConnexionReason) -> Self {
         match value {
-             EndConnexionReason::APPLICATION_SHUTDOWN => 0x00,
-             EndConnexionReason::APPLICATION_ERROR => 0x01,
+            EndConnexionReason::SHUTDOWN => 0x00,
+            EndConnexionReason::ERROR => 0x01,
+            EndConnexionReason::UNKNOWN => 0xAA
         }
     }
 }
@@ -129,25 +138,29 @@ impl From<EndConnexionReason> for u8 {
 #[repr(u8)]
 pub enum StreamType {
     MANAGEMENT,
-    RELIABLE_DATA,
-    UNRELIABLE_DATA,
+    RELIABLE,
+    UNRELIABLE,
+    UNKNOWN,
 }
-impl From<u8> for StreamType{
+
+impl From<u8> for StreamType {
     fn from(value: u8) -> Self {
         match value {
             0x00 => StreamType::MANAGEMENT,
-            0x01 => StreamType::RELIABLE_DATA,
-            0x02 => StreamType::UNRELIABLE_DATA,
-            _ => panic!("Should not happen")
+            0x01 => StreamType::RELIABLE,
+            0x02 => StreamType::UNRELIABLE,
+            _ => StreamType::UNKNOWN
         }
     }
 }
-impl From<StreamType> for u8{
+
+impl From<StreamType> for u8 {
     fn from(value: StreamType) -> Self {
         match value {
             StreamType::MANAGEMENT => 0x00,
-            StreamType::RELIABLE_DATA => 0x01,
-            StreamType::UNRELIABLE_DATA => 0x02,
+            StreamType::RELIABLE => 0x01,
+            StreamType::UNRELIABLE => 0x02,
+            StreamType::UNKNOWN => 0xAA,
         }
     }
 }
@@ -157,23 +170,27 @@ impl From<StreamType> for u8{
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum TopicsAction {
-    SUBSCRIBE = 0x00,
-    UNSUBSCRIBE = 0xFF,
+    SUBSCRIBE,
+    UNSUBSCRIBE,
+    UNKNOWN,
 }
-impl From<TopicsAction> for u8{
+
+impl From<TopicsAction> for u8 {
     fn from(value: TopicsAction) -> Self {
         match value {
             TopicsAction::SUBSCRIBE => 0x00,
             TopicsAction::UNSUBSCRIBE => 0xFF,
+            TopicsAction::UNKNOWN => 0xAA,
         }
     }
 }
-impl From<u8> for TopicsAction{
+
+impl From<u8> for TopicsAction {
     fn from(value: u8) -> Self {
         match value {
             0x00 => TopicsAction::SUBSCRIBE,
             0xFF => TopicsAction::UNSUBSCRIBE,
-            _ => panic!("Should not happend")
+            _ => TopicsAction::UNKNOWN
         }
     }
 }
@@ -183,32 +200,37 @@ impl From<u8> for TopicsAction{
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum TopicsResponse {
-    SUCCESS = 0x00,
-    FAILURE = 0xF0,
+    SUCCESS,
+    FAILURE,
+    UNKNOWN,
 }
+
 impl From<TopicsResponse> for u8 {
     fn from(value: TopicsResponse) -> Self {
         match value {
             TopicsResponse::SUCCESS => 0x00,
             TopicsResponse::FAILURE => 0xF0,
+            TopicsResponse::UNKNOWN => 0xAA,
         }
     }
 }
+
 impl From<u8> for TopicsResponse {
     fn from(value: u8) -> Self {
         match value {
             0x00 => TopicsResponse::SUCCESS,
             0xF0 => TopicsResponse::FAILURE,
-            _ => panic!("Should not happend")
+            _ => TopicsResponse::UNKNOWN
         }
     }
 }
 
-pub struct Size{
-    size:u16
+pub struct Size {
+    size: u16,
 }
+
 impl Size {
-    pub const fn new(size:u16) -> Size {
+    pub const fn new(size: u16) -> Size {
         Size {
             size,
         }
@@ -222,15 +244,16 @@ impl Size {
 ** ================================*/
 
 //===== Sent to connect to a peer to the server
-pub struct RQ_Connect{
+pub struct RQ_Connect {
     message_type: MessageType,
 }
+
 impl RQ_Connect {
-    pub const fn new()-> RQ_Connect {
-        RQ_Connect{message_type:MessageType::CONNECT}
+    pub const fn new() -> RQ_Connect {
+        RQ_Connect { message_type: MessageType::CONNECT }
     }
 
-    pub fn as_bytes(&self)-> Vec<u8>
+    pub fn as_bytes(&self) -> Vec<u8>
     {
         let bytes = [u8::from(self.message_type)].to_vec();
 
@@ -239,18 +262,19 @@ impl RQ_Connect {
 }
 
 //===== Sent to acknowledge the connexion
-pub struct RQ_Connect_ACK_OK{
+pub struct RQ_Connect_ACK_OK {
     message_type: MessageType,
     status: ConnectStatus,
-    peer_id:u64,
+    peer_id: u64,
     heartbeat_period: u16,
 }
+
 impl RQ_Connect_ACK_OK {
-    pub const fn new(peer_id:u64, heartbeat_period: u16)-> RQ_Connect_ACK_OK {
-        RQ_Connect_ACK_OK{message_type:MessageType::CONNECT_ACK, status: ConnectStatus::SUCCESS, peer_id, heartbeat_period}
+    pub const fn new(peer_id: u64, heartbeat_period: u16) -> RQ_Connect_ACK_OK {
+        RQ_Connect_ACK_OK { message_type: MessageType::CONNECT_ACK, status: ConnectStatus::SUCCESS, peer_id, heartbeat_period }
     }
 
-    pub fn as_bytes(&self)-> Vec<u8>
+    pub fn as_bytes(&self) -> Vec<u8>
     {
         let mut bytes = [u8::from(self.message_type)].to_vec();
         bytes.append(&mut [u8::from(self.status)].to_vec());
@@ -260,15 +284,17 @@ impl RQ_Connect_ACK_OK {
         return bytes;
     }
 }
-pub struct RQ_Connect_ACK_ERROR{
+
+pub struct RQ_Connect_ACK_ERROR {
     message_type: MessageType,
     status: ConnectStatus,
     message_size: Size,
     reason: Vec<u8>,
 }
+
 impl RQ_Connect_ACK_ERROR {
-    pub const fn new(message_size:Size, reason: Vec<u8>)-> RQ_Connect_ACK_ERROR {
-        RQ_Connect_ACK_ERROR{message_type:MessageType::CONNECT_ACK, status: ConnectStatus::FAILURE, message_size, reason}
+    pub const fn new(message_size: Size, reason: Vec<u8>) -> RQ_Connect_ACK_ERROR {
+        RQ_Connect_ACK_ERROR { message_type: MessageType::CONNECT_ACK, status: ConnectStatus::FAILURE, message_size, reason }
     }
 
     pub fn as_bytes(&self) -> Vec<u8>
@@ -283,91 +309,99 @@ impl RQ_Connect_ACK_ERROR {
 }
 
 //===== Sent to maintain the connexion
-pub struct RQ_Heartbeat{
+pub struct RQ_Heartbeat {
     message_type: MessageType,
 }
+
 impl RQ_Heartbeat {
-    pub const fn new()-> RQ_Heartbeat {
-        RQ_Heartbeat{message_type:MessageType::HEARTBEAT}
+    pub const fn new() -> RQ_Heartbeat {
+        RQ_Heartbeat { message_type: MessageType::HEARTBEAT }
     }
 }
 
 //===== Sent to request a Heartbeat if a pear do not recive his
 // normal heartbeat.
-pub struct RQ_Heartbeat_Request{
+pub struct RQ_Heartbeat_Request {
     message_type: MessageType,
 }
+
 impl RQ_Heartbeat_Request {
-    pub const fn new()-> RQ_Heartbeat_Request {
-        RQ_Heartbeat_Request{message_type:MessageType::HEARTBEAT_REQUEST}
+    pub const fn new() -> RQ_Heartbeat_Request {
+        RQ_Heartbeat_Request { message_type: MessageType::HEARTBEAT_REQUEST }
     }
 }
 
 //===== Sent to measure the latency between peer and broker
-pub struct RQ_Ping{
+pub struct RQ_Ping {
     message_type: MessageType,
-    ping_id:u8,
+    ping_id: u8,
 }
+
 impl RQ_Ping {
-    pub const fn new(ping_id:u8)-> RQ_Ping {
-        RQ_Ping{message_type:MessageType::PING, ping_id}
+    pub const fn new(ping_id: u8) -> RQ_Ping {
+        RQ_Ping { message_type: MessageType::PING, ping_id }
     }
 }
 
 //===== Sent to answer a ping request.
-pub struct RQ_Pong{
+pub struct RQ_Pong {
     message_type: MessageType,
-    ping_id:u8,
+    ping_id: u8,
 }
+
 impl RQ_Pong {
-    pub const fn new(ping_id:u8)-> RQ_Ping {
-        RQ_Ping{message_type:MessageType::PONG, ping_id}
+    pub const fn new(ping_id: u8) -> RQ_Ping {
+        RQ_Ping { message_type: MessageType::PONG, ping_id }
     }
 }
 
 //===== Sent to close the connexion between peer and broker
-pub struct RQ_Shutdown{
+pub struct RQ_Shutdown {
     message_type: MessageType,
     reason: EndConnexionReason,
 }
+
 impl RQ_Shutdown {
-    pub const fn new(reason: EndConnexionReason)-> RQ_Shutdown {
-        RQ_Shutdown{message_type:MessageType::SHUTDOWN, reason}
+    pub const fn new(reason: EndConnexionReason) -> RQ_Shutdown {
+        RQ_Shutdown { message_type: MessageType::SHUTDOWN, reason }
     }
 }
 
 //===== Sent to open a new stream
-pub struct RQ_OpenStream{
+pub struct RQ_OpenStream {
     message_type: MessageType,
     stream_type: StreamType,
 }
+
 impl RQ_OpenStream {
-    pub const fn new(stream_type: StreamType)-> RQ_OpenStream {
-        RQ_OpenStream{message_type:MessageType::OPEN_STREAM, stream_type}
+    pub const fn new(stream_type: StreamType) -> RQ_OpenStream {
+        RQ_OpenStream { message_type: MessageType::OPEN_STREAM, stream_type }
     }
 }
 
 //===== Sent to subscribe/unsubscribe to a topic
-pub struct RQ_TopicRequest{
+pub struct RQ_TopicRequest {
     message_type: MessageType,
     action: TopicsAction,
-    topic_id: u64
+    topic_id: u64,
 }
+
 impl RQ_TopicRequest {
-    pub const fn new(action: TopicsAction, topic_id: u64)-> RQ_TopicRequest {
-        RQ_TopicRequest{message_type:MessageType::TOPIC_REQUEST, action, topic_id}
+    pub const fn new(action: TopicsAction, topic_id: u64) -> RQ_TopicRequest {
+        RQ_TopicRequest { message_type: MessageType::TOPIC_REQUEST, action, topic_id }
     }
 }
 
 //===== Sent to acknowledge a TOPIC_REQUEST
-pub struct RQ_TopicRequest_ACK{
+pub struct RQ_TopicRequest_ACK {
     message_type: MessageType,
     status: TopicsResponse,
-    topic_id: u64
+    topic_id: u64,
 }
+
 impl RQ_TopicRequest_ACK {
-    pub const fn new(status: TopicsResponse, topic_id: u64)-> RQ_TopicRequest_ACK {
-        RQ_TopicRequest_ACK{message_type:MessageType::TOPIC_REQUEST_ACK, status, topic_id}
+    pub const fn new(status: TopicsResponse, topic_id: u64) -> RQ_TopicRequest_ACK {
+        RQ_TopicRequest_ACK { message_type: MessageType::TOPIC_REQUEST_ACK, status, topic_id }
     }
 }
 
