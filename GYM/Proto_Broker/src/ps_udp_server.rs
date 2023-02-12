@@ -1,3 +1,4 @@
+use rand::Rng;
 use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
 
@@ -40,9 +41,13 @@ impl Server {
         }
     }
     fn get_new_id(&mut self) -> u64 {
-        let id = self.last_id + 1;
-        self.last_id = id;
-        return id;
+        let mut rng = rand::thread_rng();
+        let mut nb: u64 = rng.gen();
+        if self.hashmap.contains_key(&nb) {
+            // bc we love recursivity
+            nb = *&self.get_new_id();
+        }
+        return nb;
     }
 
     pub fn invalid_msg_type(&self, src: &SocketAddr) {
