@@ -55,14 +55,14 @@ impl Server {
         println!("recieved invalid packet from {}", src.ip())
     }
 
-    fn already_connected(&self, ip : &IpAddr, port: u16) -> bool {
+    fn already_connected(&self, ip : &IpAddr, port: u16) -> (bool, u64) {
 
         for (key, value) in &self.hashmap {
             if ip == &value.ip() && port == value.port() {
-                return true;
+                return (true, *key);
             }
         }
-        return false;
+        return (false, 0);
     }
 
     pub fn main_loop(&mut self) {
@@ -73,13 +73,15 @@ impl Server {
                     println!("Received {} bytes from {}", n, src);
                     match MessageType::from(buf[0]) {
                         MessageType::CONNECT => {
-                            if self.already_connected(&src.ip(), src.port()) {
+                            let (is_connected, current_id) = self.already_connected(&src.ip(), src.port());
+                            if is_connected {
+                                RQ_Connect_ACK_OK::new(current_id, 1);
                                 continue;
                             }
                             let uuid = self.get_new_id();
                             self.hashmap.insert(uuid, src);
-                            let RQ_ConnectACK = RQ_Connect_ACK_OK::new(uuid, 1);
-                            let result = self.socket.send_to(&RQ_ConnectACK.as_bytes(), src);
+                            let rq_connect_ack = RQ_Connect_ACK_OK::new(uuid, 1);
+                            let result = self.socket.send_to(&rq_connect_ack.as_bytes(), src);
                             println!("Send {} bytes", result.unwrap());
                         }
                         MessageType::DATA => {}
