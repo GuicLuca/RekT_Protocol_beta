@@ -1,6 +1,6 @@
 use rand::Rng;
 use std::collections::HashMap;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 
 use crate::ps_datagram_structs::{MessageType, RQ_Connect_ACK_OK};
 
@@ -40,6 +40,7 @@ impl Server {
             }
         }
     }
+
     fn get_new_id(&mut self) -> u64 {
         let mut rng = rand::thread_rng();
         let mut nb: u64 = rng.gen();
@@ -54,6 +55,16 @@ impl Server {
         println!("recieved invalid packet from {}", src.ip())
     }
 
+    fn already_connected(&self, ip : &IpAddr, port: u16) -> bool {
+
+        for (key, value) in &self.hashmap {
+            if ip == &value.ip() && port == value.port() {
+                return true;
+            }
+        }
+        return false;
+    }
+
     pub fn main_loop(&mut self) {
         loop {
             let mut buf = [0; 1024];
@@ -62,6 +73,9 @@ impl Server {
                     println!("Received {} bytes from {}", n, src);
                     match MessageType::from(buf[0]) {
                         MessageType::CONNECT => {
+                            if self.already_connected(&src.ip(), src.port()) {
+                                continue;
+                            }
                             let uuid = self.get_new_id();
                             self.hashmap.insert(uuid, src);
                             let RQ_ConnectACK = RQ_Connect_ACK_OK::new(uuid, 1);
