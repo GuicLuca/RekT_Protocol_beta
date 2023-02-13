@@ -68,7 +68,7 @@ impl Server {
         return (false, 0);
     }
 
-    pub fn split_topics(&mut self,payload : String) {
+    pub fn create_topics(&mut self,payload : String) {
         let topics_string = String::new();
         let it = payload.split("/");
         let vec : Vec<&str> = it.collect();
@@ -102,12 +102,14 @@ impl Server {
                     match MessageType::from(buf[0]) {
                         MessageType::CONNECT => {
                             let (is_connected, current_id) = self.already_connected(&src.ip(), src.port());
+                            let uuid;
                             if is_connected {
-                                RQ_Connect_ACK_OK::new(current_id, 1);
-                                continue;
+                                uuid = current_id;
                             }
-                            let uuid = self.get_new_id();
-                            self.clients.insert(uuid, src);
+                            else {
+                                uuid = self.get_new_id();
+                                self.clients.insert(uuid, src);
+                            }
                             let rq_connect_ack = RQ_Connect_ACK_OK::new(uuid, 1);
                             let result = self.socket.send_to(&rq_connect_ack.as_bytes(), src);
                             println!("Send {} bytes", result.unwrap());

@@ -31,6 +31,14 @@ pub enum MessageType {
     UNKNOWN,
 }
 
+pub fn get_bytes_as_slice(buffer : &[u8], from : u8, to : u8) {
+    if to > from {
+        panic!("From need to be lower than the to");
+    }
+    let mut arr = [0u8; 8];
+    arr.copy_from_slice(&buffer[2..10]);
+    let peer_id = u64::from_le_bytes(arr);
+}
 impl From<u8> for MessageType {
     fn from(value: u8) -> Self {
         match value {
