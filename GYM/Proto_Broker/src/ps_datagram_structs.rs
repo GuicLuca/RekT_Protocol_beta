@@ -2,6 +2,7 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use crate::ps_common::get_bytes_from_slice;
 
 /** ==================================
 *
@@ -31,7 +32,7 @@ pub enum MessageType {
     UNKNOWN,
 }
 
-pub fn get_bytes_as_slice(buffer : &[u8], from : u8, to : u8) {
+pub fn get_bytes_as_slice(buffer: &[u8], from: u8, to: u8) {
     if to > from {
         panic!("From need to be lower than the to");
     }
@@ -39,6 +40,7 @@ pub fn get_bytes_as_slice(buffer : &[u8], from : u8, to : u8) {
     arr.copy_from_slice(&buffer[2..10]);
     let peer_id = u64::from_le_bytes(arr);
 }
+
 impl From<u8> for MessageType {
     fn from(value: u8) -> Self {
         match value {
@@ -272,6 +274,15 @@ impl RQ_Connect {
     }
 }
 
+impl From<&[u8]> for RQ_Connect {
+    fn from(value: &[u8]) -> Self {
+        RQ_Connect {
+            message_type: MessageType::from(value.first().unwrap().clone()),
+        }
+    }
+}
+
+
 //===== Sent to acknowledge the connexion
 pub struct RQ_Connect_ACK_OK {
     message_type: MessageType,
@@ -296,6 +307,17 @@ impl RQ_Connect_ACK_OK {
     }
 }
 
+impl From<&[u8]> for RQ_Connect_ACK_OK {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_Connect_ACK_OK {
+            message_type:MessageType::CONNECT_ACK,
+            status: ConnectStatus::SUCCESS,
+            peer_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 2,10).try_into().expect("Cannot get the peer_id slice from the buffer")),
+            heartbeat_period: u16::from_le_bytes(get_bytes_from_slice(buffer, 11,12).try_into().expect("Cannot get the heartbeat_period slice from the buffer")),
+        }
+    }
+}
+
 pub struct RQ_Connect_ACK_ERROR {
     message_type: MessageType,
     status: ConnectStatus,
@@ -304,7 +326,9 @@ pub struct RQ_Connect_ACK_ERROR {
 }
 
 impl RQ_Connect_ACK_ERROR {
-    pub const fn new(message_size: Size, reason: Vec<u8>) -> RQ_Connect_ACK_ERROR {
+    pub const fn new(message: &str) -> RQ_Connect_ACK_ERROR {
+        let reason = message.as_bytes().to_vec();
+        let message_size = Size{size: reason.len() as u16};
         RQ_Connect_ACK_ERROR { message_type: MessageType::CONNECT_ACK, status: ConnectStatus::FAILURE, message_size, reason }
     }
 
@@ -328,6 +352,20 @@ impl RQ_Heartbeat {
     pub const fn new() -> RQ_Heartbeat {
         RQ_Heartbeat { message_type: MessageType::HEARTBEAT }
     }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes = [u8::from(self.message_type)].to_vec();
+
+        return bytes;
+    }
+}
+impl From<&[u8]> for RQ_Heartbeat {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_Heartbeat{
+            message_type: MessageType::HEARTBEAT
+        }
+    }
 }
 
 //===== Sent to request a Heartbeat if a pear do not recive his
@@ -339,6 +377,20 @@ pub struct RQ_Heartbeat_Request {
 impl RQ_Heartbeat_Request {
     pub const fn new() -> RQ_Heartbeat_Request {
         RQ_Heartbeat_Request { message_type: MessageType::HEARTBEAT_REQUEST }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes = [u8::from(self.message_type)].to_vec();
+
+        return bytes;
+    }
+}
+impl From<&[u8]> for RQ_Heartbeat_Request {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_Heartbeat_Request{
+            message_type: MessageType::HEARTBEAT_REQUEST
+        }
     }
 }
 
@@ -352,6 +404,22 @@ impl RQ_Ping {
     pub const fn new(ping_id: u8) -> RQ_Ping {
         RQ_Ping { message_type: MessageType::PING, ping_id }
     }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes = [u8::from(self.message_type)].to_vec();
+        bytes.push(self.ping_id);
+
+        return bytes;
+    }
+}
+impl From<&[u8]> for RQ_Ping {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_Ping{
+            message_type: MessageType::PING,
+            ping_id: buffer.get(1).unwrap().clone()
+        }
+    }
 }
 
 //===== Sent to answer a ping request.
@@ -363,6 +431,22 @@ pub struct RQ_Pong {
 impl RQ_Pong {
     pub const fn new(ping_id: u8) -> RQ_Ping {
         RQ_Ping { message_type: MessageType::PONG, ping_id }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes = [u8::from(self.message_type)].to_vec();
+        bytes.push(self.ping_id);
+
+        return bytes;
+    }
+}
+impl From<&[u8]> for RQ_Pong {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_Pong{
+            message_type: MessageType::PONG,
+            ping_id: buffer.get(1).unwrap().clone()
+        }
     }
 }
 
@@ -376,6 +460,22 @@ impl RQ_Shutdown {
     pub const fn new(reason: EndConnexionReason) -> RQ_Shutdown {
         RQ_Shutdown { message_type: MessageType::SHUTDOWN, reason }
     }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes = [u8::from(self.message_type)].to_vec();
+        bytes.append(&mut [u8::from(self.reason)].to_vec());
+
+        return bytes;
+    }
+}
+impl From<&[u8]> for RQ_Shutdown {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_Shutdown{
+            message_type: MessageType::SHUTDOWN,
+            reason: EndConnexionReason::from(buffer.get(1).unwrap().clone())
+        }
+    }
 }
 
 //===== Sent to open a new stream
@@ -387,6 +487,22 @@ pub struct RQ_OpenStream {
 impl RQ_OpenStream {
     pub const fn new(stream_type: StreamType) -> RQ_OpenStream {
         RQ_OpenStream { message_type: MessageType::OPEN_STREAM, stream_type }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes = [u8::from(self.message_type)].to_vec();
+        bytes.append(&mut [u8::from(self.stream_type)].to_vec());
+
+        return bytes;
+    }
+}
+impl From<&[u8]> for RQ_OpenStream {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_OpenStream{
+            message_type: MessageType::OPEN_STREAM,
+            stream_type: StreamType::from(buffer.get(1).unwrap().clone())
+        }
     }
 }
 
@@ -401,6 +517,24 @@ impl RQ_TopicRequest {
     pub const fn new(action: TopicsAction, topic_id: u64) -> RQ_TopicRequest {
         RQ_TopicRequest { message_type: MessageType::TOPIC_REQUEST, action, topic_id }
     }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes = [u8::from(self.message_type)].to_vec();
+        bytes.append(&mut [u8::from(self.action)].to_vec());
+        bytes.append(&mut self.topic_id.to_be_bytes().to_vec());
+
+        return bytes;
+    }
+}
+impl From<&[u8]> for RQ_TopicRequest {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_TopicRequest{
+            message_type: MessageType::TOPIC_REQUEST,
+            action: TopicsAction::from(buffer.get(1).unwrap().clone()),
+            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 2,10).to_vec().try_into().expect("Failed to get the topic id slice from the buffer"))
+        }
+    }
 }
 
 //===== Sent to acknowledge a TOPIC_REQUEST
@@ -414,57 +548,26 @@ impl RQ_TopicRequest_ACK {
     pub const fn new(status: TopicsResponse, topic_id: u64) -> RQ_TopicRequest_ACK {
         RQ_TopicRequest_ACK { message_type: MessageType::TOPIC_REQUEST_ACK, status, topic_id }
     }
-}
 
-pub struct Topic {
-    topics: Vec<Topic>,
-    id : u64
-}
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes = [u8::from(self.message_type)].to_vec();
+        bytes.append(&mut [u8::from(self.status)].to_vec());
+        bytes.append(&mut self.topic_id.to_be_bytes().to_vec());
 
-impl Topic {
-
-
-
-    pub fn create_hash() {
-    }
-
-
-
-    pub fn new(id : u64) -> Self {
-        Topic {
-            topics : Default::default(),
-            id
-        }
-    }
-
-    pub fn get_sub_topic_by_id(&mut self, id : u64) -> Option<&mut Topic> {
-        if self.id == id {
-            return Some(self);
-        }
-        else {
-            for topic in &mut self.topics {
-                let new_topic = topic.get_sub_topic_by_id(id);
-                if new_topic.is_some() {
-                    return new_topic;
-                }
-            }
-        }
-        return None;
-
-
-    }
-    pub fn add_sub_topic(&mut self, topic : Topic) {
-        self.topics.push(topic);
-    }
-
-    pub fn get_sub_topics(&self) -> &Vec<Topic> {
-        return &self.topics;
-    }
-
-    pub fn get_id(&self) -> u64 {
-        return self.id;
+        return bytes;
     }
 }
+impl From<&[u8]> for RQ_TopicRequest_ACK {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_TopicRequest_ACK{
+            message_type: MessageType::TOPIC_REQUEST_ACK,
+            status: TopicsResponse::from(buffer.get(1).unwrap().clone()),
+            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 2,10).to_vec().try_into().expect("Failed to get the topic id slice from the buffer"))
+        }
+    }
+}
+
 
 /*
 //===== Sent to acknowledge a TOPIC_REQUEST

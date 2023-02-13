@@ -1,10 +1,14 @@
-use std::collections::hash_map::DefaultHasher;
-use rand::Rng;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
+use std::io::ErrorKind;
+
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 
-use crate::ps_datagram_structs::{MessageType, RQ_Connect_ACK_OK, Topic};
+use rand::Rng;
+use try_catch::catch;
+
+use crate::ps_common::string_to_hash;
+use crate::ps_datagram_structs::{MessageType, RQ_Connect_ACK_ERROR, RQ_Connect_ACK_OK};
+use crate::topic::*;
 
 pub struct Server {
     address: String,
@@ -13,7 +17,7 @@ pub struct Server {
     socket: UdpSocket,
     clients: HashMap<u64, SocketAddr>,
     last_id: u64,
-    root : Topic
+    root: Topic,
 }
 
 impl Server {
@@ -22,7 +26,7 @@ impl Server {
             address,
             port,
             topics: Default::default(),
-            root : Topic::new(1),
+            root: Topic::new(1),
             socket,
             clients: HashMap::new(),
             last_id: 0,
@@ -68,8 +72,7 @@ impl Server {
         return (false, 0);
     }
 
-    pub fn create_topics(&mut self,payload : String) {
-        let topics_string = String::new();
+    pub fn create_topics(&mut self, payload: String) {
         let it = payload.split("/");
         let vec : Vec<&str> = it.collect();
         let mut hasher = DefaultHasher::new();
@@ -89,9 +92,7 @@ impl Server {
             last_created_topic = last_created_topic.get_sub_topic_by_id(id).expect("Topic was created but can't found");
 
             i < vec.len()
-        } {}
-
-
+        } { /*do while syntax xd*/ }
     }
     pub fn main_loop(&mut self) {
         loop {
@@ -101,18 +102,7 @@ impl Server {
                     println!("Received {} bytes from {}", n, src);
                     match MessageType::from(buf[0]) {
                         MessageType::CONNECT => {
-                            let (is_connected, current_id) = self.already_connected(&src.ip(), src.port());
-                            let uuid;
-                            if is_connected {
-                                uuid = current_id;
-                            }
-                            else {
-                                uuid = self.get_new_id();
-                                self.clients.insert(uuid, src);
-                            }
-                            let rq_connect_ack = RQ_Connect_ACK_OK::new(uuid, 1);
-                            let result = self.socket.send_to(&rq_connect_ack.as_bytes(), src);
-                            println!("Send {} bytes", result.unwrap());
+                            self.handle_connect(src)
                         }
                         MessageType::DATA => {}
                         MessageType::OPEN_STREAM => {}

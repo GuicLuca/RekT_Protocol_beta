@@ -12,7 +12,7 @@ pub struct Client {
 impl Client {
     pub const fn new(id: u64, stream: UdpSocket) -> Client {
         Client {
-            id: id,
+            id,
             socket: stream,
         }
     }
@@ -24,7 +24,7 @@ impl Client {
         // Get the packet type from the message type
         let message_type = MessageType::from(*buffer.to_vec().first().unwrap());
         match message_type {
-            MessageType::CONNECT_ACK =>{
+            MessageType::CONNECT_ACK => {
                 println!("Connect_Ack received !");
                 let is_succesfull = ConnectStatus::from(*buffer.to_vec().get(1).unwrap());
                 match is_succesfull {
@@ -40,9 +40,9 @@ impl Client {
                         let mut arr = [0u8; 2];
                         arr.copy_from_slice(&buffer[2..4]);
                         let message_size = u16::from_le_bytes(arr);
-                        let index : usize = 5usize+usize::from(message_size);
+                        let index: usize = 5usize + usize::from(message_size);
                         let reason = &buffer[5usize..(index)];
-                        println!("ERROR with the CONNECT Packet : {}",String::from_utf8(reason.to_vec()).expect("Can't convert reason to string"));
+                        println!("ERROR with the CONNECT Packet : {}", String::from_utf8(reason.to_vec()).expect("Can't convert reason to string"));
                         panic!("The client can't be constructed");
                     }
                     ConnectStatus::UNKNOWN => {
@@ -53,8 +53,6 @@ impl Client {
             _ => {
                 panic!("Unknown connect status response");
             }
-
-
         }
     }
 
@@ -74,7 +72,7 @@ impl Client {
                 // ... server answer with a connect_ack_STATUS
                 let mut buffer = [0; 1024];
                 socket.recv_from(&mut buffer);
-                return Client::create_client_from_connect_response(socket,&buffer);
+                return Client::create_client_from_connect_response(socket, &buffer);
             }
             Err(e) => {
                 println!("Error connecting to {}", addr);
