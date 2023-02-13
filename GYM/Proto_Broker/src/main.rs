@@ -28,8 +28,10 @@ fn main() {
         let reg = Regex::new(r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$").unwrap();
 
         println!("0 : Manual Mode");
-        println!("1 : Mat PC C8");
-        println!("2 : Hugo PC C8");
+        println!("1 : Mat PC C8 | 143");
+        println!("2 : Hugo PC C8 | 109");
+        println!("3 : Lucas PC C8 | 125");
+        println!("4 : Taylor Swift C8 | 129");
         let choice: u8 = ps_common::get_cli_input("Choose server : ", "wtf", None, None, true).parse().unwrap();
 
         let addr;
@@ -40,7 +42,14 @@ fn main() {
             2 => {
                 addr = String::from("192.168.0.109")
             }
+            3 => {
+                addr = String::from("192.168.0.125")
+            }
+            4 => {
+                addr = String::from("192.168.0.126")
+            }
             _ => {
+                println!("fallback to manual mode");
                 addr = ps_common::get_cli_input("Input addr : ", "wtf", None, Some(&reg), false);
             }
         }
