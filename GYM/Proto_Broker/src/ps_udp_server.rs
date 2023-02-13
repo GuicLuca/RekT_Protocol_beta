@@ -9,9 +9,9 @@ use crate::ps_datagram_structs::{MessageType, RQ_Connect_ACK_OK, Topic};
 pub struct Server {
     address: String,
     port: i16,
-    state: HashMap<i64, Vec<i64>>,
+    topics: HashMap<u64, Vec<u64>>,
     socket: UdpSocket,
-    hashmap: HashMap<u64, SocketAddr>,
+    clients: HashMap<u64, SocketAddr>,
     last_id: u64,
     root : Topic
 }
@@ -21,10 +21,10 @@ impl Server {
         Server {
             address,
             port,
-            state: Default::default(),
+            topics: Default::default(),
             root : Topic::new(1),
             socket,
-            hashmap: HashMap::new(),
+            clients: HashMap::new(),
             last_id: 0,
         }
     }
@@ -48,7 +48,7 @@ impl Server {
     fn get_new_id(&mut self) -> u64 {
         let mut rng = rand::thread_rng();
         let mut nb: u64 = rng.gen();
-        if self.hashmap.contains_key(&nb) {
+        if self.clients.contains_key(&nb) {
             // bc we love recursivity
             nb = *&self.get_new_id();
         }
@@ -59,9 +59,8 @@ impl Server {
         println!("recieved invalid packet from {}", src.ip())
     }
 
-    fn already_connected(&self, ip : &IpAddr, port: u16) -> (bool, u64) {
-
-        for (key, value) in &self.hashmap {
+    fn already_connected(&self, ip: &IpAddr, port: u16) -> (bool, u64) {
+        for (key, value) in &self.clients {
             if ip == &value.ip() && port == value.port() {
                 return (true, *key);
             }
@@ -108,19 +107,19 @@ impl Server {
                                 continue;
                             }
                             let uuid = self.get_new_id();
-                            self.hashmap.insert(uuid, src);
+                            self.clients.insert(uuid, src);
                             let rq_connect_ack = RQ_Connect_ACK_OK::new(uuid, 1);
                             let result = self.socket.send_to(&rq_connect_ack.as_bytes(), src);
                             println!("Send {} bytes", result.unwrap());
                         }
-
                         MessageType::DATA => {}
                         MessageType::OPEN_STREAM => {}
+                        MessageType::SHUTDOWN => {}
                         MessageType::HEARTBEAT => {}
                         MessageType::OBJECT_REQUEST => {}
                         MessageType::TOPIC_REQUEST => {}
                         MessageType::PING => {}
-                        MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::SHUTDOWN | MessageType::PONG => {
+                        MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PONG => {
                             self.invalid_msg_type(&src)
                         }
                         MessageType::UNKNOWN => {

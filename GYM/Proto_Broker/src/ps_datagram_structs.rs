@@ -429,12 +429,12 @@ impl Topic {
         }
     }
 
-    pub fn get_sub_topic_by_id(&self, id : u64) -> Option<&mut Topic> {
+    pub fn get_sub_topic_by_id(&mut self, id : u64) -> Option<&mut Topic> {
         if self.id == id {
             return Some(self);
         }
         else {
-            for topic in &self.topics {
+            for topic in &mut self.topics {
                 let new_topic = topic.get_sub_topic_by_id(id);
                 if new_topic.is_some() {
                     return new_topic;
