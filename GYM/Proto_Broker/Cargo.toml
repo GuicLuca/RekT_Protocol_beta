@@ -10,6 +10,7 @@ regex = "1"
 hex = "0.4.3"
 bincode = "2.0.0-rc.2"
 rand = "0.8.5"
+try-catch = "0.2.2"
 [dependencies.uuid]
 version = "1.2.2"
 features = [

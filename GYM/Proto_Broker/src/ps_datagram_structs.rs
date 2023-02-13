@@ -342,6 +342,17 @@ impl RQ_Connect_ACK_ERROR {
         return bytes;
     }
 }
+impl From<&[u8]> for RQ_Connect_ACK_ERROR{
+    fn from(buffer: &[u8]) -> Self {
+        let size = u16::from_le_bytes(get_bytes_from_slice(buffer, 2, 3).try_into().expect("Cannot get size from buffer."));
+        RQ_Connect_ACK_ERROR{
+            message_type: MessageType::CONNECT_ACK,
+            status: ConnectStatus::FAILURE,
+            message_size: Size { size },
+            reason: get_bytes_from_slice(buffer, 4, (4 + size) as usize),
+        }
+    }
+}
 
 //===== Sent to maintain the connexion
 pub struct RQ_Heartbeat {

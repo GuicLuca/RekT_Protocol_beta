@@ -63,9 +63,9 @@ impl Server {
         println!("recieved invalid packet from {}", src.ip())
     }
 
-    fn already_connected(&self, ip: &IpAddr, port: u16) -> (bool, u64) {
+    fn already_connected(&self, ip: &IpAddr) -> (bool, u64) {
         for (key, value) in &self.clients {
-            if ip == &value.ip() && port == value.port() {
+            if ip == &value.ip() {
                 return (true, *key);
             }
         }
@@ -74,9 +74,8 @@ impl Server {
 
     pub fn create_topics(&mut self, payload: String) {
         let it = payload.split("/");
-        let vec : Vec<&str> = it.collect();
-        let mut hasher = DefaultHasher::new();
-        let mut last_created_topic  = &mut self.root;
+        let vec: Vec<&str> = it.collect();
+        let mut last_created_topic = &mut self.root;
         let i = 0;
         while {
             let mut hash: String = String::from("/");
@@ -84,9 +83,8 @@ impl Server {
                 hash.push_str(&vec[j].to_string());
                 hash.push_str("/");
             }
-            vec[i].hash(&mut hasher);
-            let id = hasher.finish();
-            let mut new_topic = Topic::new(id);
+            let id = string_to_hash(&vec[i].to_string());
+            let new_topic = Topic::new(id);
             last_created_topic.add_sub_topic(new_topic);
 
             last_created_topic = last_created_topic.get_sub_topic_by_id(id).expect("Topic was created but can't found");
@@ -94,6 +92,28 @@ impl Server {
             i < vec.len()
         } { /*do while syntax xd*/ }
     }
+
+    fn handle_connect(&mut self, src: SocketAddr) {
+            let (is_connected, current_id) = self.already_connected(&src.ip());
+            let uuid;
+            let result;
+            if is_connected {
+                uuid = current_id;
+            } else {
+                uuid = self.get_new_id();
+                self.clients.insert(uuid, src);
+            }
+            result = self.socket.send_to(&RQ_Connect_ACK_OK::new(uuid, 1).as_bytes(), src);
+            match result  {
+                Ok(bytes) => {
+                    println!("Send {} bytes", bytes);
+                }
+                Err(_) => {
+                    println!("Failed to send Connect ACK to {}", src);
+                }
+        }
+    }
+
     pub fn main_loop(&mut self) {
         loop {
             let mut buf = [0; 1024];
@@ -109,7 +129,9 @@ impl Server {
                         MessageType::SHUTDOWN => {}
                         MessageType::HEARTBEAT => {}
                         MessageType::OBJECT_REQUEST => {}
-                        MessageType::TOPIC_REQUEST => {}
+                        MessageType::TOPIC_REQUEST => {
+                            self.create_topics("/home/xd/2".to_string())
+                        }
                         MessageType::PING => {}
                         MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PONG => {
                             self.invalid_msg_type(&src)

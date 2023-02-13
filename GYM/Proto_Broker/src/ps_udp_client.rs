@@ -1,7 +1,5 @@
 use std::net::UdpSocket;
 
-use uuid::Uuid;
-
 use crate::ps_datagram_structs::*;
 
 pub struct Client {
