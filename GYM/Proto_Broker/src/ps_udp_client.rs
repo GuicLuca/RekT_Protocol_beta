@@ -17,6 +17,9 @@ impl Client {
         }
     }
 
+    pub fn get_id(&self) -> u64 {
+        self.id
+    }
     fn create_client_from_connect_response(socket: UdpSocket, buffer: &[u8]) -> Client {
         // Get the packet type from the message type
         let message_type = MessageType::from(*buffer.to_vec().first().unwrap());

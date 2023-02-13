@@ -51,15 +51,6 @@ fn main() {
 
 
         let client = Client::connect(full_addr.clone());
-        let mut aa = 0;
-        loop {
-            let str = format!("tbougo{aa}");
-            let ret = client.send_bytes(str.as_bytes(), &full_addr);
-            if !ret {
-                println!("byte sending failed");
-            }
-            aa = aa + 1;
-            sleep(Duration::from_millis(500))
-        }
+        println!("your id is : {}",client.get_id());
     }
 }

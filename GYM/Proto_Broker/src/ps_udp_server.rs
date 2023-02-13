@@ -1,8 +1,10 @@
+use std::collections::hash_map::DefaultHasher;
 use rand::Rng;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 
-use crate::ps_datagram_structs::{MessageType, RQ_Connect_ACK_OK};
+use crate::ps_datagram_structs::{MessageType, RQ_Connect_ACK_OK, Topic};
 
 pub struct Server {
     address: String,
@@ -11,6 +13,7 @@ pub struct Server {
     socket: UdpSocket,
     hashmap: HashMap<u64, SocketAddr>,
     last_id: u64,
+    root : Topic
 }
 
 impl Server {
@@ -19,6 +22,7 @@ impl Server {
             address,
             port,
             state: Default::default(),
+            root : Topic::new(1),
             socket,
             hashmap: HashMap::new(),
             last_id: 0,
@@ -65,6 +69,31 @@ impl Server {
         return (false, 0);
     }
 
+    pub fn split_topics(&mut self,payload : String) {
+        let topics_string = String::new();
+        let it = payload.split("/");
+        let vec : Vec<&str> = it.collect();
+        let mut hasher = DefaultHasher::new();
+        let mut last_created_topic  = &mut self.root;
+        let i = 0;
+        while {
+            let mut hash: String = String::from("/");
+            for j in 0..i {
+                hash.push_str(&vec[j].to_string());
+                hash.push_str("/");
+            }
+            vec[i].hash(&mut hasher);
+            let id = hasher.finish();
+            let mut new_topic = Topic::new(id);
+            last_created_topic.add_sub_topic(new_topic);
+
+            last_created_topic = last_created_topic.get_sub_topic_by_id(id).expect("Topic was created but can't found");
+
+            i < vec.len()
+        } {}
+
+
+    }
     pub fn main_loop(&mut self) {
         loop {
             let mut buf = [0; 1024];
@@ -84,6 +113,7 @@ impl Server {
                             let result = self.socket.send_to(&rq_connect_ack.as_bytes(), src);
                             println!("Send {} bytes", result.unwrap());
                         }
+
                         MessageType::DATA => {}
                         MessageType::OPEN_STREAM => {}
                         MessageType::HEARTBEAT => {}
