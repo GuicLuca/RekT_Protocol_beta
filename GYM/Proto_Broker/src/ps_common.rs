@@ -45,3 +45,12 @@ pub fn get_cli_input(prompt: &str, err_msg: &str, string_match: Option<&Vec<Stri
 
     return value;
 }
+
+pub fn get_bytes_from_slice(buffer: &[u8], from: usize, to: usize) -> Vec<u8> {
+    let mut vec: Vec<u8> = Default::default();
+    if to < from {
+        panic!("from is greater than to");
+    }
+    vec.copy_from_slice(&buffer[from..to]);
+    return vec;
+}

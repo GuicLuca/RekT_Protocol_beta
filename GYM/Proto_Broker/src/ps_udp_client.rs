@@ -1,7 +1,7 @@
 use std::net::UdpSocket;
 
 use crate::ps_datagram_structs::*;
-
+use crate::ps_common::*;
 pub struct Client {
     id: u64,
     socket: UdpSocket,
@@ -28,9 +28,8 @@ impl Client {
                 match is_succesfull {
                     ConnectStatus::SUCCESS => {
                         // Copy a part of the buffer to an array to convert it to u64
-                        let mut arr = [0u8; 8];
-                        arr.copy_from_slice(&buffer[2..10]);
-                        let peer_id = u64::from_le_bytes(arr);
+                        let mut arr = get_bytes_from_slice(&buffer,2,8);
+                        let peer_id = u64::from_le_bytes(arr.try_into().expect("The vector can't be converted"));
                         return Client::new(peer_id, socket);
                     }
                     ConnectStatus::FAILURE => {
