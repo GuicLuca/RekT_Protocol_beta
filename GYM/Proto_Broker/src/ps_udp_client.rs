@@ -18,7 +18,14 @@ impl Client {
     pub fn get_id(&self) -> u64 {
         self.id
     }
-    fn create_client_from_connect_response(socket: UdpSocket, buffer: &[u8]) -> Client {
+
+    fn read_le_u64(&self, input: &mut &[u8]) -> u64 {
+        let (int_bytes, rest) = input.split_at(std::mem::size_of::<u64>());
+        *input = rest;
+        u64::from_le_bytes(int_bytes.try_into().unwrap())
+    }
+
+    fn create_client_from_connect_response(&self, socket: UdpSocket, buffer: &[u8]) -> Client {
         // Get the packet type from the message type
         let message_type = MessageType::from(*buffer.to_vec().first().unwrap());
         match message_type {
@@ -29,7 +36,8 @@ impl Client {
                     ConnectStatus::SUCCESS => {
                         // Copy a part of the buffer to an array to convert it to u64
                         let mut arr = get_bytes_from_slice(&buffer,2,8);
-                        let peer_id = u64::from_le_bytes(arr.try_into().expect("The vector can't be converted"));
+
+                        let peer_id = self.read_le_u64(&mut &buffer[2..8]);
                         return Client::new(peer_id, socket);
                     }
                     ConnectStatus::FAILURE => {
