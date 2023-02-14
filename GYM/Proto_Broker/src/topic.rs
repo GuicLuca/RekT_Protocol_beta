@@ -4,8 +4,6 @@ pub struct Topic {
 }
 
 impl Topic {
-    pub fn create_hash() {}
-
 
     pub fn new(id: u64) -> Self {
         Topic {
@@ -15,27 +13,26 @@ impl Topic {
     }
 
     pub fn get_sub_topic_by_id(&mut self, id: u64) -> Option<&mut Topic> {
+        // using Option as it's much cleaner
         if self.id == id {
-            return Some(self);
+            Some(self)
         } else {
-            for topic in &mut self.topics {
-                let new_topic = topic.get_sub_topic_by_id(id);
-                if new_topic.is_some() {
-                    return new_topic;
+            // iterate over sub topics with mutable ref
+            for topic in self.topics.iter_mut() {
+                // let to dynamically declare boolean
+                if let Some(new_topic) = topic.get_sub_topic_by_id(id) {
+                    return Some(new_topic);
                 }
             }
+            None
         }
-        return None;
     }
+
     pub fn add_sub_topic(&mut self, topic: Topic) {
         self.topics.push(topic);
     }
 
-    pub fn get_sub_topics(&self) -> &Vec<Topic> {
-        return &self.topics;
-    }
-
     pub fn get_id(&self) -> u64 {
-        return self.id;
+        self.id
     }
 }

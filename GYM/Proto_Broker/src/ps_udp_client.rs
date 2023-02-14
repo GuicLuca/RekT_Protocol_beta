@@ -53,6 +53,11 @@ impl Client {
         }
     }
 
+    pub fn create_topic_test(&self) -> std::io::Result<usize> {
+        let topic_rq = RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, 0);
+        self.socket.send(&topic_rq.as_bytes())
+    }
+
     pub fn connect(addr: String) -> Client {
         let addr1 = format!("0.0.0.0:{}", addr.rsplit_once(':').unwrap().1);
         println!("{}", addr1);
@@ -78,6 +83,8 @@ impl Client {
             }
         }
     }
+
+    pub fn
 
     pub fn send_bytes(&self, bytes: &[u8], remote_addr: &String) -> bool {
         let size = self.socket.send_to(bytes, remote_addr);

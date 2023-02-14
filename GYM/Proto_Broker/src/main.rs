@@ -62,5 +62,6 @@ fn main() {
 
         let client = Client::connect(full_addr.clone());
         println!("your id is : {}",client.get_id());
+        println!("{}", client.create_topic_test().unwrap())
     }
 }

@@ -73,25 +73,26 @@ impl Server {
     }
 
     pub fn create_topics(&mut self, payload: String) {
-        let it = payload.split("/");
-        let vec: Vec<&str> = it.collect();
+        let vec: Vec<&str> = payload.split("/").collect();
+
         let mut last_created_topic = &mut self.root;
-        let i = 0;
-        while {
-            let mut hash: String = String::from("/");
-            for j in 0..i {
-                hash.push_str(&vec[j].to_string());
-                hash.push_str("/");
-            }
-            let id = string_to_hash(&vec[i].to_string());
+        let mut hash = String::from("/");
+        for i in 0..vec.len() {
+            hash.push_str(vec[i]);
+            hash.push_str("/");
+
+            println!("{}", hash);
+
+            let id = string_to_hash(&hash);
             let new_topic = Topic::new(id);
             last_created_topic.add_sub_topic(new_topic);
 
-            last_created_topic = last_created_topic.get_sub_topic_by_id(id).expect("Topic was created but can't found");
-
-            i < vec.len()
-        } { /*do while syntax xd*/ }
+            last_created_topic = last_created_topic
+                .get_sub_topic_by_id(id)
+                .expect("Topic was created but cannot be found");
+        }
     }
+
 
     fn handle_connect(&mut self, src: SocketAddr) {
             let (is_connected, current_id) = self.already_connected(&src.ip());
