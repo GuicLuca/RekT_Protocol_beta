@@ -326,7 +326,7 @@ pub struct RQ_Connect_ACK_ERROR {
 }
 
 impl RQ_Connect_ACK_ERROR {
-    pub const fn new(message: &str) -> RQ_Connect_ACK_ERROR {
+    pub fn new(message: &str) -> RQ_Connect_ACK_ERROR {
         let reason = message.as_bytes().to_vec();
         let message_size = Size{size: reason.len() as u16};
         RQ_Connect_ACK_ERROR { message_type: MessageType::CONNECT_ACK, status: ConnectStatus::FAILURE, message_size, reason }
