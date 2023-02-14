@@ -84,8 +84,6 @@ impl Client {
         }
     }
 
-    pub fn
-
     pub fn send_bytes(&self, bytes: &[u8], remote_addr: &String) -> bool {
         let size = self.socket.send_to(bytes, remote_addr);
         if size.is_err() {
