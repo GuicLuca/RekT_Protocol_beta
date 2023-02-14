@@ -76,10 +76,11 @@ impl Server {
         let vec: Vec<&str> = payload.split("/").collect();
 
         let mut last_created_topic = &mut self.root;
-        let mut hash = String::from("/");
-        for i in 0..vec.len() {
-            hash.push_str(vec[i]);
+        let mut hash = String::from("");
+        for i in 1..vec.len() {
             hash.push_str("/");
+            hash.push_str(vec[i]);
+
 
             println!("{}", hash);
 

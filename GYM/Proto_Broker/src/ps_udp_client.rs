@@ -18,25 +18,17 @@ impl Client {
     pub fn get_id(&self) -> u64 {
         self.id
     }
-
     fn create_client_from_connect_response(socket: UdpSocket, buffer: &[u8]) -> Client {
         // Get the packet type from the message type
         let message_type = MessageType::from(*buffer.to_vec().first().unwrap());
         match message_type {
             MessageType::CONNECT_ACK => {
                 println!("Connect_Ack received !");
-                fn read_le_u64(input: &mut &[u8]) -> u64 {
-                    let (int_bytes, rest) = input.split_at(std::mem::size_of::<u64>());
-                    *input = rest;
-                    u64::from_le_bytes(int_bytes.try_into().unwrap())
-                }
                 let is_succesfull = ConnectStatus::from(*buffer.to_vec().get(1).unwrap());
                 match is_succesfull {
                     ConnectStatus::SUCCESS => {
                         // Copy a part of the buffer to an array to convert it to u64
-                        let mut arr = get_bytes_from_slice(&buffer,2,8);
-
-                        let peer_id = read_le_u64(&mut &buffer[2..8]);
+                        let peer_id = u64::from_le_bytes(buffer[2..10].to_vec().try_into().unwrap());
                         return Client::new(peer_id, socket);
                     }
                     ConnectStatus::FAILURE => {
@@ -81,7 +73,7 @@ impl Client {
                 // ... server answer with a connect_ack_STATUS
                 let mut buffer = [0; 1024];
                 socket.recv_from(&mut buffer);
-                return Client::create_client_from_connect_response( socket, &buffer);
+                return Client::create_client_from_connect_response(socket, &buffer);
             }
             Err(e) => {
                 println!("Error connecting to {}", addr);
