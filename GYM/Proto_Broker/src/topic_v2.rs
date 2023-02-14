@@ -55,6 +55,7 @@ impl TopicV2 {
                 current_topic = existing_topic;
             } else {
                 let mut new_topic = TopicV2::new(topic_id);
+                // POURQUOI
                 current_topic.sub_topics.insert(topic_id, new_topic.clone());
                 current_topic = current_topic.sub_topics.get_mut(&topic_id).unwrap();
             }
