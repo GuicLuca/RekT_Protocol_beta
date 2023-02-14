@@ -12,13 +12,13 @@ impl Topic {
         }
     }
 
-    pub fn get_sub_topic_by_id(&mut self, id: u64) -> Option<&mut Topic> {
+    pub fn get_sub_topic_by_id(&self, id: u64) -> Option<&Topic> {
         // using Option as it's much cleaner
         if self.id == id {
             Some(self)
         } else {
             // iterate over sub topics with mutable ref
-            for topic in self.topics.iter_mut() {
+            for topic in self.topics.iter() {
                 // let to dynamically declare boolean
                 if let Some(new_topic) = topic.get_sub_topic_by_id(id) {
                     return Some(new_topic);

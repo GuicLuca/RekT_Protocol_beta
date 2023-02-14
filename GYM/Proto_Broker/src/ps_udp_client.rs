@@ -53,7 +53,7 @@ impl Client {
     }
 
     pub fn create_topic_test(&self) -> std::io::Result<usize> {
-        let topic_rq = RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, 0);
+        let topic_rq = RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/home/topix/xd");
         self.socket.send(&topic_rq.as_bytes())
     }
 
@@ -69,10 +69,10 @@ impl Client {
 
                 // 1 - send Connect datagrams
                 let connect_request = RQ_Connect::new();
-                socket.send(&connect_request.as_bytes());
+                socket.send(&connect_request.as_bytes()).expect("TODO: panic message");
                 // ... server answer with a connect_ack_STATUS
                 let mut buffer = [0; 1024];
-                socket.recv_from(&mut buffer);
+                socket.recv_from(&mut buffer).expect("TODO: panic message");
                 return Client::create_client_from_connect_response(socket, &buffer);
             }
             Err(e) => {

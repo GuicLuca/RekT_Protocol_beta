@@ -14,6 +14,7 @@ mod ps_udp_client;
 mod ps_client;
 mod ps_datagram_structs;
 mod topic;
+mod topic_v2;
 
 fn main() {
     println!("Broker_test");
