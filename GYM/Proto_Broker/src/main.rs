@@ -14,6 +14,7 @@ mod ps_udp_client;
 mod ps_client;
 mod ps_datagram_structs;
 mod topic;
+mod topic_v2;
 
 fn main() {
     println!("Broker_test");
@@ -29,10 +30,10 @@ fn main() {
         let reg = Regex::new(r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$").unwrap();
 
         println!("0 : Manual Mode");
-        println!("1 : Mat PC C8 | 143");
-        println!("2 : Hugo PC C8 | 109");
-        println!("3 : Lucas PC C8 | 125");
-        println!("4 : Taylor Swift C8 | 129");
+        println!("1 : Mat PC C8");
+        println!("2 : Hugo PC C8");
+        println!("3 : Lucas PC C8");
+        println!("4 : Taylor Swift C8");
         let choice: u8 = ps_common::get_cli_input("Choose server : ", "wtf", None, None, true).parse().unwrap();
 
         let addr;
@@ -44,7 +45,7 @@ fn main() {
                 addr = String::from("192.168.0.109")
             }
             3 => {
-                addr = String::from("192.168.0.125")
+                addr = String::from("192.168.204.223")
             }
             4 => {
                 addr = String::from("192.168.0.126")
@@ -62,5 +63,6 @@ fn main() {
 
         let client = Client::connect(full_addr.clone());
         println!("your id is : {}",client.get_id());
+        println!("{}", client.create_topic_test().unwrap())
     }
 }

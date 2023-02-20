@@ -28,8 +28,7 @@ impl Client {
                 match is_succesfull {
                     ConnectStatus::SUCCESS => {
                         // Copy a part of the buffer to an array to convert it to u64
-                        let mut arr = get_bytes_from_slice(&buffer,2,8);
-                        let peer_id = u64::from_le_bytes(arr.try_into().expect("The vector can't be converted"));
+                        let peer_id = u64::from_le_bytes(buffer[2..10].to_vec().try_into().unwrap());
                         return Client::new(peer_id, socket);
                     }
                     ConnectStatus::FAILURE => {
@@ -53,6 +52,11 @@ impl Client {
         }
     }
 
+    pub fn create_topic_test(&self) -> std::io::Result<usize> {
+        let topic_rq = RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/home/topix/xd");
+        self.socket.send(&topic_rq.as_bytes())
+    }
+
     pub fn connect(addr: String) -> Client {
         let addr1 = format!("0.0.0.0:{}", addr.rsplit_once(':').unwrap().1);
         println!("{}", addr1);
@@ -65,10 +69,10 @@ impl Client {
 
                 // 1 - send Connect datagrams
                 let connect_request = RQ_Connect::new();
-                socket.send(&connect_request.as_bytes());
+                socket.send(&connect_request.as_bytes()).expect("TODO: panic message");
                 // ... server answer with a connect_ack_STATUS
                 let mut buffer = [0; 1024];
-                socket.recv_from(&mut buffer);
+                socket.recv_from(&mut buffer).expect("TODO: panic message");
                 return Client::create_client_from_connect_response(socket, &buffer);
             }
             Err(e) => {
