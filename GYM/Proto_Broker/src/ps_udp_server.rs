@@ -75,7 +75,7 @@ impl Server {
 
 
     pub fn create_topics(&mut self, path: &str) -> u64 {
-        TopicV2::create_topicsGPT(path, &mut self.root);
+        TopicV2::create_topicsGPT(path, &mut self.root)
 
     }
 
