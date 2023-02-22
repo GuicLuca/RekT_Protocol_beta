@@ -82,14 +82,24 @@ impl TopicV2 {
                 hasher.finish()
             };
 
-            if let Some(existing_topic) = current_topic.sub_topics.get_mut(&topic_id) {
+            let test = match current_topic.sub_topics.get_mut(&topic_id) {
+                None => {
+                    let mut new_topic = TopicV2::new(topic_id);
+
+                    current_topic.sub_topics.insert(topic_id, new_topic.clone());
+                    current_topic.sub_topics.get_mut(&topic_id).unwrap()
+                },
+                Some(existing_topic) => existing_topic,
+            };
+
+            /*if let Some(existing_topic) = current_topic.sub_topics.get_mut(&topic_id) {
                 current_topic = existing_topic;
             } else {
                 let mut new_topic = TopicV2::new(topic_id);
-                // POURQUOI
+
                 current_topic.sub_topics.insert(topic_id, new_topic.clone());
                 current_topic = current_topic.sub_topics.get_mut(&topic_id).unwrap();
-            }
+            }*/
             last_created_topic_id = topic_id;
         }
         last_created_topic_id

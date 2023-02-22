@@ -2,6 +2,7 @@ use std::net::UdpSocket;
 
 use crate::ps_datagram_structs::*;
 use crate::ps_common::*;
+
 pub struct Client {
     id: u64,
     socket: UdpSocket,
@@ -30,7 +31,7 @@ impl Client {
 
                         // Copy a part of the buffer to an array to convert it to u64
                         let peer_id = u64::from_le_bytes(buffer[2..10].to_vec().try_into().unwrap());
-                        println!("New client : {}",peer_id);
+                        println!("New client : {}", peer_id);
                         return Client::new(peer_id, socket);
                     }
                     ConnectStatus::FAILURE => {
@@ -83,6 +84,14 @@ impl Client {
                 println!("{}", e);
                 panic!()
             }
+        }
+    }
+
+    pub fn wait_xd(&self) {
+        loop {
+            let mut buffer = [0; 1024];
+            self.socket.recv_from(&mut buffer).expect("TODO: panic message");
+            println!("{:?}", buffer)
         }
     }
 
