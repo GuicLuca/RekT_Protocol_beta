@@ -36,7 +36,34 @@ impl TopicV2 {
         self.sub_topics.insert(sub_topic.id, sub_topic);
     }
 
+    pub fn create_topicsGPT(path: &str, root: &mut TopicV2) -> u64 {
+        let mut last_created_topic_id = root.id;
+        let topic_names: Vec<&str> = path.split("/").collect();
+
+        let mut current_topic = root;
+        for topic_name in topic_names {
+            if topic_name.is_empty() {
+                continue;
+            }
+            let topic_id = {
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                topic_name.hash(&mut hasher);
+                hasher.finish()
+            };
+
+            current_topic = current_topic
+                .sub_topics
+                .entry(topic_id)
+                .or_insert_with(|| TopicV2::new(topic_id));
+
+            last_created_topic_id = topic_id;
+        }
+        last_created_topic_id
+    }
+
+/*
     pub fn create_topics(path: &str, root: &mut TopicV2) -> u64 {
+
         let mut last_created_topic_id = root.id;
         let topic_names: Vec<&str> = path.split("/").collect();
 
@@ -63,5 +90,5 @@ impl TopicV2 {
         }
         last_created_topic_id
     }
-
+ */
 }

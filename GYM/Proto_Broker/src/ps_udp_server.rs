@@ -75,7 +75,7 @@ impl Server {
 
 
     pub fn create_topics(&mut self, path: &str) -> u64 {
-        TopicV2::create_topics(path, &mut self.root)
+        TopicV2::create_topicsGPT(path, &mut self.root)
     }
 
     /*
@@ -137,11 +137,15 @@ impl Server {
         let result;
         if is_connected {
             uuid = current_id;
+            println!("deja client bg {}",uuid);
         } else {
             uuid = self.get_new_id();
+            println!("new client bg {}",uuid);
             self.clients.insert(uuid, src);
         }
-        result = self.socket.send_to(&RQ_Connect_ACK_OK::new(uuid, 1).as_bytes(), src);
+        let ye = &RQ_Connect_ACK_OK::new(uuid, 1).as_bytes();
+        println!("{:?}",ye);
+        result = self.socket.send_to(ye, src);
         match result {
             Ok(bytes) => {
                 println!("Send {} bytes", bytes);

@@ -27,12 +27,15 @@ impl Client {
                 let is_succesfull = ConnectStatus::from(*buffer.to_vec().get(1).unwrap());
                 match is_succesfull {
                     ConnectStatus::SUCCESS => {
+
                         // Copy a part of the buffer to an array to convert it to u64
                         let peer_id = u64::from_le_bytes(buffer[2..10].to_vec().try_into().unwrap());
+                        println!("New client : {}",peer_id);
                         return Client::new(peer_id, socket);
                     }
                     ConnectStatus::FAILURE => {
                         // Copy a part of the buffer to an array to convert it to u16
+
                         let mut arr = [0u8; 2];
                         arr.copy_from_slice(&buffer[2..4]);
                         let message_size = u16::from_le_bytes(arr);

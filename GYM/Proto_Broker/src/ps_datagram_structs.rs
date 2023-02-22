@@ -302,7 +302,7 @@ impl RQ_Connect_ACK_OK {
         let mut bytes = [u8::from(self.message_type)].to_vec();
         bytes.append(&mut [u8::from(self.status)].to_vec());
         bytes.append(&mut self.peer_id.to_le_bytes().to_vec());
-        bytes.append(&mut self.heartbeat_period.to_le_bytes().to_vec());
+        //bytes.append(&mut self.heartbeat_period.to_le_bytes().to_vec());
 
         return bytes;
     }
