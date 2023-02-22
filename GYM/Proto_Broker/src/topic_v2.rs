@@ -7,7 +7,7 @@ use std::hash::{Hash, Hasher};
 #[derive(Debug, Clone)]
 pub struct TopicV2 {
     pub(crate) id: u64,
-    sub_topics: HashMap<u64, TopicV2>,
+    pub(crate) sub_topics: Vec<TopicV2>,
 }
 
 impl Hash for TopicV2 {
@@ -28,12 +28,12 @@ impl TopicV2 {
     pub fn new(id: u64) -> TopicV2 {
         TopicV2 {
             id,
-            sub_topics: HashMap::new(),
+            sub_topics: Vec::new(),
         }
     }
 
     pub fn add_sub_topic(&mut self, sub_topic: TopicV2) {
-        self.sub_topics.insert(sub_topic.id, sub_topic);
+        self.sub_topics.push(sub_topic);
     }
 
     pub fn create_topicsGPT(path: &str, root: &mut TopicV2) -> u64 {
@@ -51,11 +51,15 @@ impl TopicV2 {
                 hasher.finish()
             };
 
-            current_topic = current_topic
-                .sub_topics
-                .entry(topic_id)
-                .or_insert_with(|| TopicV2::new(topic_id));
-
+            let existing_topic_idx = current_topic.sub_topics.iter().position(|t| t.id == topic_id);
+            if let Some(idx) = existing_topic_idx {
+                current_topic = &mut current_topic.sub_topics[idx];
+            } else {
+                let new_topic = TopicV2::new(topic_id);
+                current_topic.sub_topics.push(new_topic);
+                let new_topic_idx = current_topic.sub_topics.len() - 1;
+                current_topic = &mut current_topic.sub_topics[new_topic_idx];
+            }
             last_created_topic_id = topic_id;
         }
         last_created_topic_id
