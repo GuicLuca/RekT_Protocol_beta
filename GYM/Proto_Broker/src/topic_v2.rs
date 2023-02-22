@@ -8,6 +8,7 @@ use std::hash::{Hash, Hasher};
 pub struct TopicV2 {
     pub(crate) id: u64,
     pub(crate) sub_topics: Vec<TopicV2>,
+    pub(crate) name : String,
 }
 
 impl Hash for TopicV2 {
@@ -25,10 +26,11 @@ impl PartialEq for TopicV2 {
 impl Eq for TopicV2 {}
 
 impl TopicV2 {
-    pub fn new(id: u64) -> TopicV2 {
+    pub fn new(id: u64, name : String) -> TopicV2 {
         TopicV2 {
             id,
             sub_topics: Vec::new(),
+            name : String::from(name),
         }
     }
 
@@ -55,7 +57,7 @@ impl TopicV2 {
             if let Some(idx) = existing_topic_idx {
                 current_topic = &mut current_topic.sub_topics[idx];
             } else {
-                let new_topic = TopicV2::new(topic_id);
+                let new_topic = TopicV2::new(topic_id,topic_name.to_string());
                 current_topic.sub_topics.push(new_topic);
                 let new_topic_idx = current_topic.sub_topics.len() - 1;
                 current_topic = &mut current_topic.sub_topics[new_topic_idx];

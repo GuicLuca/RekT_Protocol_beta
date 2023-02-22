@@ -27,7 +27,7 @@ impl Server {
             address,
             port,
             topics: Default::default(),
-            root: TopicV2::new(1),
+            root: TopicV2::new(1,"/".to_string()),
             socket,
             clients: HashMap::new(),
             last_id: 0,
