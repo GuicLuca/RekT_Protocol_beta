@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::io::ErrorKind;
-use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::io::{BufRead, ErrorKind,};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -9,6 +9,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rand::Rng;
 use try_catch::catch;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, ReadHalf, WriteHalf},
+    net::UdpSocket,
+};
 
 use crate::ps_common::string_to_hash;
 use crate::ps_datagram_structs::{MessageType, RQ_Connect_ACK_ERROR, RQ_Connect_ACK_OK, RQ_Ping, RQ_TopicRequest_ACK, TopicsResponse};
@@ -19,7 +23,8 @@ pub struct Server {
     address: String,
     port: i16,
     topics: HashMap<u64, Vec<u64>>,
-    socket: UdpSocket,
+    reader: ReadHalf<tokio::net::UdpSocket>,
+    writer: WriteHalf<tokio::net::UdpSocket>,
     clients: HashMap<u64, SocketAddr>,
     root: TopicV2,
     b_running : bool,
@@ -28,13 +33,15 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(address: String, port: i16, socket: UdpSocket) -> Self {
+    pub fn new(address: String, port: i16,&mut socket: &mut tokio::net::UdpSocket) -> Self {
+        //let (reader, mut writer) = socket.split();
         Server {
             address,
             port,
             topics: Default::default(),
             root: TopicV2::new(1),
-            socket,
+            reader,
+            writer,
             clients: HashMap::new(),
             b_running: false,
             clients_ping: HashMap::new(),
@@ -42,9 +49,10 @@ impl Server {
         }
     }
 
+    // - done
     pub fn serve(address: String, port: i16) -> Server {
         let addr = format!("{}:{}", address, port);
-        let ret = UdpSocket::bind(addr.clone());
+        let &mut ret = UdpSocket::bind(addr.clone());
         match ret {
             Ok(socket) => {
                 println!("Running on {}", addr);
@@ -224,6 +232,7 @@ impl Server {
                                 }
                             }
                         */}
+                        MessageType::PONG => {}
                         MessageType::PING => {/*Drop paquet*/}
                         MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PONG => {
                             self.invalid_msg_type(&src)

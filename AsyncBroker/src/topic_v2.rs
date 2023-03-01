@@ -36,7 +36,7 @@ impl TopicV2 {
         self.sub_topics.insert(sub_topic.id, sub_topic);
     }
 
-    /*pub fn create_topics(path: &str, root: &mut TopicV2) -> u64 {
+    pub fn create_topics(path: &str, root: &mut TopicV2) -> u64 {
         let mut last_created_topic_id = root.id;
         let topic_names: Vec<&str> = path.split("/").collect();
 
@@ -62,6 +62,6 @@ impl TopicV2 {
             last_created_topic_id = topic_id;
         }
         last_created_topic_id
-    }*/
+    }
 
 }

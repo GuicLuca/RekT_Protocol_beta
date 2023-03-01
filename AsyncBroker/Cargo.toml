@@ -1,11 +1,12 @@
 [package]
-name = "proto_broker"
+name = "AsyncBroker"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+local-ip-address = "0.5.1"
 tokio = {version ="1.25.0", features = ["full"]}
 regex = "1"
 hex = "0.4.3"
