@@ -4,7 +4,10 @@ use tokio::{
 };
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use local_ip_address::local_ip;
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::Mutex;
 
 use crate::topic_v2::TopicV2;
 
@@ -12,10 +15,8 @@ mod ps_datagram_structs;
 mod topic_v2;
 mod ps_common;
 mod ps_server_lib;
-use crate::ps_datagram_structs::{MessageType, RQ_Connect_ACK_OK};
+use crate::ps_datagram_structs::*;
 use crate::ps_server_lib::*;
-
-
 
 #[tokio::main]
 async fn main(){
@@ -30,48 +31,52 @@ async fn main(){
       ==============================*/
 
    let socket = UdpSocket::bind(format!("{}:{}", "0.0.0.0", port.parse::<i16>().unwrap())).await.unwrap();
+   let SocketRef = Arc::new(socket);
    let address =  String::new();
    let port: i16 = port.parse::<i16>().unwrap();
    let topics: HashMap<u64, Vec<u64>> = HashMap::default();
-   let reader: ReadHalf<tokio::net::UdpSocket>;
-   let writer: WriteHalf<tokio::net::UdpSocket>;
-   let mut clients: HashMap<u64, SocketAddr> = HashMap::default();
-   let root: TopicV2;
+   let mut clients: Mutex<HashMap<u64, SocketAddr>> = Mutex::new(HashMap::default());
+   let clientsRef = Arc::new(clients);
+   let root = Mutex::new(TopicV2::new(1,"/".to_string()));
+   let root_ref = Arc::new(root);
    let b_running : bool = false;
    let clients_ping: HashMap<u64, SocketAddr> = HashMap::default();
    let pings: HashMap<u8, u128> = HashMap::default();
 
+   // =============================
+   //    Spawning async functions
+   // =============================
+   #[allow(unused)]
+   tokio::spawn(datagrams_handler(SocketRef.clone(), clientsRef.clone(), root_ref.clone())).await;
+   #[allow(unused)]
+   tokio::spawn(ping_sender(SocketRef.clone())).await;
+}
 
+/*
+   This method handle every incoming datagram in the broker
+   @param receiver Arc<UdpSocket> : An atomic reference of the UDP socket of the server
+ */
+async fn datagrams_handler(
+   receiver : Arc<UdpSocket>,
+   clients_ref: Arc<Mutex<HashMap<u64, SocketAddr>>>,
+   root_ref: Arc<Mutex<TopicV2>>
+){
+   // infinite loop receiving listening for datagrams
    loop {
+      // 1 - create an empty buffer of size 1024
       let mut buf = [0; 1024];
-      match socket.recv_from(&mut buf).await {
+
+      // 2 - Wait for bytes reception
+      match receiver.recv_from(&mut buf).await {
+         // 3 - Once bytes are received, check for errors
          Ok((n, src)) => {
+            // 4 - if OK match on the first byte (MESSAGE_TYPE)
             println!("Received {} bytes from {}", n, src);
+
             match MessageType::from(buf[0]) {
                MessageType::CONNECT => {
-                  /* ====================
-                     Handle new client
-                   =====================*/
-                  tokio::spawn(async move {
-                     let (is_connected, current_id) = already_connected(&src.ip(), clients.clone());
-                     let uuid;
-                     let result;
-                     if is_connected {
-                        uuid = current_id;
-                     } else {
-                        uuid = get_new_id(clients.clone());
-                        clients.insert(uuid, src);
-                     }
-                     result = socket.send_to(&RQ_Connect_ACK_OK::new(uuid, 1).as_bytes(), src).await;
-                     match result {
-                        Ok(bytes) => {
-                           println!("Send {} bytes", bytes);
-                        }
-                        Err(_) => {
-                           println!("Failed to send Connect ACK to {}", src);
-                        }
-                     }
-                  });
+                  // 4.1 - A user is trying to connect to the server
+                  handle_connect(src, clients_ref.clone(), receiver.clone()).await;
                }
                MessageType::DATA => {}
                MessageType::OPEN_STREAM => {}
@@ -79,24 +84,23 @@ async fn main(){
                MessageType::HEARTBEAT => {}
                MessageType::OBJECT_REQUEST => {}
                MessageType::TOPIC_REQUEST => {
-                  /*    let topic_path = String::from_utf8(buf[1..].to_vec()).unwrap();
+                  let topic_path = String::from_utf8(buf[1..].to_vec()).unwrap();
 
-                      let topic_id = self.create_topics(&topic_path);
+                  let topic_id = create_topics(&topic_path, root_ref.clone()).await;
 
-                      let result = self.socket.send_to(&RQ_TopicRequest_ACK::new(TopicsResponse::SUCCESS, topic_id).as_bytes(), src);
-                      match result {
-                          Ok(bytes) => {
-                              println!("Send {} bytes", bytes);
-                          }
-                          Err(_) => {
-                              println!("Failed to send ACK to {}", src);
-                          }
-                      }
-                  */}
-               MessageType::PONG => {}
-               MessageType::PING => {/*Drop paquet*/}
+                  let result = datagrams_sender(receiver.clone(), &RQ_TopicRequest_ACK::new(TopicsResponse::SUCCESS, topic_id).as_bytes(), src).await;
+                  match result {
+                     Ok(bytes) => {
+                        println!("Send {} bytes", bytes);
+                     }
+                     Err(_) => {
+                        println!("Failed to send ACK to {}", src);
+                     }
+                  }
+               }
+               MessageType::PING => {}
                MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PONG => {
-                  //invalid_msg_type(&src)
+                  invalid_msg_type(&src).await;
                }
                MessageType::UNKNOWN => {
                   println!("recieved unknown packet from {}", src.ip())
@@ -110,6 +114,14 @@ async fn main(){
          }
       }
    }
+}
+
+async fn ping_sender(sender : Arc<UdpSocket>) {
+
+}
+
+async fn datagrams_sender(sender : Arc<UdpSocket>, buffer : &[u8], src: SocketAddr) -> std::io::Result<usize> {
+   sender.send_to(buffer,src).await
 }
 
 
