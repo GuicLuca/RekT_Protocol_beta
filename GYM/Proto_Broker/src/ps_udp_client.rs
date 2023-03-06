@@ -64,7 +64,7 @@ impl Client {
     pub fn connect(addr: String) -> Client {
         let addr1 = format!("0.0.0.0:{}", addr.rsplit_once(':').unwrap().1);
         println!("{}", addr1);
-        let ret = UdpSocket::bind(addr1.clone());
+        let ret = UdpSocket::bind("0.0.0.0:3939");
         match ret {
             Ok(socket) => {
                 println!("connected to {}", addr);

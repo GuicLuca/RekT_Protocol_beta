@@ -35,30 +35,26 @@ pub async fn handle_connect(src: SocketAddr, clients : Arc<Mutex<HashMap<u64, So
     let result;
     if is_connected {
         uuid = current_id;
-        println!("User is already a client, UUID : {}",uuid);
+        println!("[Server Handler] {} was already a client, UUID : {}", src.ip(), uuid);
     } else {
         uuid = get_new_id(clients.lock().await);
-        println!("new client bg {}",uuid);
+        println!("[Server Handler] {} is now a client, UUID : {}", src.ip(), uuid);
         let mut map = clients.lock().await;
         map.insert(uuid, src);
     }
     let datagram = &RQ_Connect_ACK_OK::new(uuid, 1).as_bytes();
-    println!("{:?}",datagram);
+    println!("[Server Handler] Connect ack OK sent. Datagram : {:?}",datagram);
     result = socket.send_to(datagram, src).await;
     match result {
         Ok(bytes) => {
-            println!("Send {} bytes", bytes);
+            println!("[Server Handler] Send {} bytes to {}", bytes, src.ip());
         }
         Err(_) => {
-            println!("Failed to send Connect ACK to {}", src);
+            println!("[Server Handler] Failed to send Connect ACK to {}", src);
         }
     }
 }
 
 pub async fn create_topics(path: &str, root : Arc<Mutex<TopicV2>>) -> u64 {
     TopicV2::create_topicsGPT(path, root.lock().await)
-}
-
-pub async fn invalid_msg_type(src: &SocketAddr) {
-    println!("Received invalid packet from {}", src.ip());
 }
