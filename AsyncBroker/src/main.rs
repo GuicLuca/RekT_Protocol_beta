@@ -56,13 +56,20 @@ async fn main(){
    //    Spawning async functions
    // =============================
    b_running = Arc::from(true);
-   let datagram_handler = tokio::spawn(datagrams_handler(socket_ref.clone(), clients_ref.clone(), root_ref.clone(), pings_ref.clone(), clients_ping_ref.clone()));
-   let ping_sender = tokio::spawn(ping_sender(socket_ref.clone(), clients_ref.clone(), pings_ref.clone(),b_running.clone()));
+   let datagram_handler = tokio::spawn(datagrams_handler(
+      socket_ref.clone(),
+      clients_ref.clone(),
+      root_ref.clone(),
+      pings_ref.clone(),
+      clients_ping_ref.clone(),
+      b_running.clone()
+   ));
+   //let ping_sender = tokio::spawn(ping_sender(socket_ref.clone(), clients_ref.clone(), pings_ref.clone(),b_running.clone()));
 
    println!("[Server] Server is running ...");
 
    #[allow(unused)]
-   let (res1, res2) = join!(datagram_handler, ping_sender);
+   let res1 = join!(datagram_handler);
 }
 
 /**
@@ -72,6 +79,7 @@ async fn main(){
    @param root_ref Arc<Mutex<TopicV2>> : An atomic reference of root topics, protected by a mutex to be thread safe
    @param pings_ref Arc<Mutex<HashMap<u8, u128>>> : An atomic reference of the pings time references, protected by a mutex to be thread safe
    @param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a mutex to be thread safe
+   @param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
 
    @return none
  */
@@ -80,7 +88,8 @@ async fn datagrams_handler(
    clients_ref: Arc<Mutex<HashMap<u64, SocketAddr>>>,
    root_ref: Arc<Mutex<TopicV2>>,
    pings_ref: Arc<Mutex<HashMap<u8, u128>>>,
-   clients_ping_ref : Arc<Mutex<HashMap<u64, u128>>>
+   clients_ping_ref : Arc<Mutex<HashMap<u64, u128>>>,
+   b_running : Arc<bool>
 ){
    println!("[Server Handler] Datagrams Handler spawned");
    // infinite loop receiving listening for datagrams
@@ -100,6 +109,8 @@ async fn datagrams_handler(
                   // 4.1 - A user is trying to connect to the server
                   println!("[Server Handler] {} is trying to connect", src.ip());
                   handle_connect(src, clients_ref.clone(), receiver.clone()).await;
+                  #[allow(unused)]
+                  let sender =tokio::spawn(ping_sender(receiver.clone(), src, pings_ref.clone(),b_running.clone()));
                }
                MessageType::DATA => {
                   // 4.2 - A user is trying to sent data to the server
@@ -170,7 +181,7 @@ async fn datagrams_handler(
 /**
    This method send ping request to every connected clients
    @param sender Arc<UdpSocket> : An atomic reference of the UDP socket of the server
-   @param clients Arc<Mutex<HashMap<u64, SocketAddr>>> : An atomic reference of the clients HashMap. The map is protected by a mutex to be thread safe
+   @param clients SocketAddr : An atomic reference of the clients address.
    @param pings Arc<Mutex<HashMap<u8, u128>>> : An atomic reference of the pings HashMap. The map is protected by a mutex to be thread safe
    @param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
 
@@ -178,23 +189,21 @@ async fn datagrams_handler(
  */
 async fn ping_sender(
    sender : Arc<UdpSocket>,
-   clients : Arc<Mutex<HashMap<u64, SocketAddr>>>,
+   client_addr : SocketAddr,
    pings : Arc<Mutex<HashMap<u8, u128>>>,
    b_running : Arc<bool>
 ) {
-   println!("[Server Ping] Ping sender spawned");
+   println!("[Server Ping] Ping sender spawned for {}", client_addr.ip());
    // Send ping request while the server is running
    while *b_running {
-      // 1 - Send a ping request to every client
-      for(id_client, client_addr) in clients.lock().await.iter(){
-         let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone()).await).as_bytes(), client_addr).await;
-         match result {
-            Ok(bytes) => {
-               println!("[Server Ping] Send {} bytes to {}", bytes, client_addr.ip());
-            }
-            Err(_) => {
-               println!("[Server Ping] Failed to send ping request to {}", client_addr.ip());
-            }
+      // 1 - Send a ping request to the client
+      let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone()).await).as_bytes(), client_addr).await;
+      match result {
+         Ok(bytes) => {
+            println!("[Server Ping] Send {} bytes to {}", bytes, client_addr.ip());
+         }
+         Err(_) => {
+            println!("[Server Ping] Failed to send ping request to {}", client_addr.ip());
          }
       }
       // 2 - wait 10 sec before ping everyone again
