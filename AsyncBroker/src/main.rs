@@ -23,7 +23,6 @@ async fn main(){
 
    println!("[Server]  The ip of the server is {}:{}", local_ip().unwrap(), port);
 
-
    /* ===============================
           Init all server variable
       ==============================*/
@@ -66,11 +65,15 @@ async fn main(){
    let (res1, res2) = join!(datagram_handler, ping_sender);
 }
 
-/*
+/**
    This method handle every incoming datagram in the broker
    @param receiver Arc<UdpSocket> : An atomic reference of the UDP socket of the server
    @param clients_ref Arc<Mutex<HashMap<u64, SocketAddr>>> : An atomic reference of the clients HashMap. The map is protected by a mutex to be thread safe
    @param root_ref Arc<Mutex<TopicV2>> : An atomic reference of root topics, protected by a mutex to be thread safe
+   @param pings_ref Arc<Mutex<HashMap<u8, u128>>> : An atomic reference of the pings time references, protected by a mutex to be thread safe
+   @param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a mutex to be thread safe
+
+   @return none
  */
 async fn datagrams_handler(
    receiver : Arc<UdpSocket>,
@@ -164,12 +167,14 @@ async fn datagrams_handler(
    }
 }
 
-/*
+/**
    This method send ping request to every connected clients
    @param sender Arc<UdpSocket> : An atomic reference of the UDP socket of the server
    @param clients Arc<Mutex<HashMap<u64, SocketAddr>>> : An atomic reference of the clients HashMap. The map is protected by a mutex to be thread safe
    @param pings Arc<Mutex<HashMap<u8, u128>>> : An atomic reference of the pings HashMap. The map is protected by a mutex to be thread safe
    @param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
+
+   @return None
  */
 async fn ping_sender(
    sender : Arc<UdpSocket>,

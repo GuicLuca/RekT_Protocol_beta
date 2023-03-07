@@ -8,7 +8,14 @@ use tokio::sync::{Mutex, MutexGuard};
 use crate::ps_datagram_structs::*;
 use crate::topic_v2::TopicV2;
 
+/**
+    This method return true if the client was already connected, it return the old
+    client id too.
+    @param ip &IpAddr : ip address of the tested client
+    @param clients MutexGuard<HashMap<u64, SocketAddr>> : Hashmap containing all clients address and clients id.
 
+    @return (bool, u64)
+ */
 pub async fn already_connected<'a>(
     ip: &'a IpAddr,
     clients: MutexGuard<'a, HashMap<u64, SocketAddr>>
@@ -21,6 +28,12 @@ pub async fn already_connected<'a>(
     return (false, 0);
 }
 
+/**
+    This methods return a uniq id for a new client
+    @param clients MutexGuard<HashMap<u64, SocketAddr>> : Hashmap containing all clients address and clients id.
+
+    @return u64
+ */
 pub fn get_new_id(clients: MutexGuard<HashMap<u64, SocketAddr>>) -> u64 {
     let mut rng = rand::thread_rng();
     let mut nb: u64 = rng.gen();
@@ -30,6 +43,12 @@ pub fn get_new_id(clients: MutexGuard<HashMap<u64, SocketAddr>>) -> u64 {
     return nb;
 }
 
+/**
+    This methods return a uniq id for a new ping reference
+    @param pings MutexGuard<HashMap<u8, u128>> : Hashmap containing all ping id and the time reference.
+
+    @return u8
+ */
 fn get_new_ping_id(pings: MutexGuard<HashMap<u8, u128>>) -> u8 {
     let mut rng = rand::thread_rng();
     let mut nb: u8 = rng.gen();
@@ -39,6 +58,13 @@ fn get_new_ping_id(pings: MutexGuard<HashMap<u8, u128>>) -> u8 {
     return nb;
 }
 
+/**
+    This methods return the id of the given client
+    @param src &SocketAddr : The tested client
+    @param clients MutexGuard<HashMap<u64, SocketAddr>> : Hashmap containing all clients address and clients id.
+
+    @return Option<u64>
+ */
 pub async fn get_client_id(
     src : &SocketAddr,
     clients : Arc<Mutex<HashMap<u64, SocketAddr>>>
@@ -51,7 +77,19 @@ pub async fn get_client_id(
     None
 }
 
-pub async fn handle_connect(src: SocketAddr, clients : Arc<Mutex<HashMap<u64, SocketAddr>>>, socket : Arc<UdpSocket>) {
+/**
+    This methods handle the connexion of a new client to the server.
+    @param src SocketAddr : The new client
+    @param clients MutexGuard<HashMap<u64, SocketAddr>> : Hashmap containing all clients address and clients id.
+    @param socket Arc<UdpSocket> : Server socket to exchange datagrams with clients
+
+    @return none
+ */
+pub async fn handle_connect(
+    src: SocketAddr,
+    clients : Arc<Mutex<HashMap<u64, SocketAddr>>>,
+    socket : Arc<UdpSocket>
+) {
     let (is_connected, current_id) = already_connected(&src.ip(),clients.lock().await).await;
     let uuid;
     let result;

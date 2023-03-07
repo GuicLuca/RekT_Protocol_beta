@@ -90,8 +90,45 @@ impl Client {
     pub fn wait_xd(&self) {
         loop {
             let mut buffer = [0; 1024];
-            self.socket.recv_from(&mut buffer).expect("TODO: panic message");
-            println!("{:?}", buffer)
+            // 2 - Wait for bytes reception
+            match self.socket.recv_from(&mut buffer) {
+                // 3 - Once bytes are received, check for errors
+                Ok((n, src)) => {
+                    // 4 - if OK match on the first byte (MESSAGE_TYPE)
+                    println!("[Client Handler] Received {} bytes from server({})", n, src);
+
+                    match MessageType::from(buffer[0]) {
+                        MessageType::CONNECT => {}
+                        MessageType::DATA => {}
+                        MessageType::OPEN_STREAM => {}
+                        MessageType::SHUTDOWN => {}
+                        MessageType::HEARTBEAT => {}
+                        MessageType::OBJECT_REQUEST => {}
+                        MessageType::TOPIC_REQUEST => {}
+                        MessageType::PING => {
+                            // 5.x - Send a immediate response to the server
+                            let result = self.socket.send_to(&RQ_Pong::new(buffer[1]).as_bytes(), src);
+                            match result {
+                                Ok(bytes) => {
+                                    println!("[Client - Ping] Send {} bytes to server({})", bytes, src.ip());
+                                }
+                                Err(_) => {
+                                    println!("[Client - Ping] Failed to send pong to server({})", src.ip());
+                                }
+                            }
+                        }
+                        MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PONG => {}
+                        MessageType::UNKNOWN => {
+                            println!("[Client] Received unknown packet from {}", src.ip())
+                        }
+                    }
+
+                    //println!("{}", String::from_utf8_lossy(&buf[..n]));
+                }
+                Err(e) => {
+                    println!("Error: {}", e);
+                }
+            }
         }
     }
 
