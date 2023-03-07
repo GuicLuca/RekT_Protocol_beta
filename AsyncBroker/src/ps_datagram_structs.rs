@@ -313,8 +313,8 @@ impl From<&[u8]> for RQ_Connect_ACK_OK {
         RQ_Connect_ACK_OK {
             message_type: MessageType::CONNECT_ACK,
             status: ConnectStatus::SUCCESS,
-            peer_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 2, 10).try_into().expect("Cannot get the peer_id slice from the buffer")),
-            heartbeat_period: u16::from_le_bytes(get_bytes_from_slice(buffer, 11, 12).try_into().expect("Cannot get the heartbeat_period slice from the buffer")),
+            peer_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 2, 9).try_into().expect("Cannot get the peer_id slice from the buffer")),
+            heartbeat_period: u16::from_le_bytes(get_bytes_from_slice(buffer, 10, 11).try_into().expect("Cannot get the heartbeat_period slice from the buffer")),
         }
     }
 }
@@ -585,7 +585,7 @@ impl From<&[u8]> for RQ_TopicRequest_ACK {
         RQ_TopicRequest_ACK {
             message_type: MessageType::TOPIC_REQUEST_ACK,
             status: TopicsResponse::from(buffer.get(1).unwrap().clone()),
-            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 2, 10).to_vec().try_into().expect("Failed to get the topic id slice from the buffer")),
+            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 2, 9).to_vec().try_into().expect("Failed to get the topic id slice from the buffer")),
         }
     }
 }
