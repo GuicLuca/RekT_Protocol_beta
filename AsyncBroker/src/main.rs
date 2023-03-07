@@ -1,11 +1,11 @@
-use tokio::{
-   net::{UdpSocket},
-};
+use tokio::{join, net::{UdpSocket}};
 use std::collections::HashMap;
 use std::net::{SocketAddr};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use local_ip_address::local_ip;
 use tokio::sync::Mutex;
+use tokio::time::sleep;
 
 use crate::topic_v2::TopicV2;
 
@@ -28,11 +28,11 @@ async fn main(){
           Init all server variable
       ==============================*/
    // Flag showing if the server is running or not
-   let mut b_running : bool = false;
+   let mut b_running = Arc::new(false);
 
-   // The soket used by the server to exchange datagrams with clients
+   // The socket used by the server to exchange datagrams with clients
    let socket = UdpSocket::bind(format!("{}:{}", "0.0.0.0", port.parse::<i16>().unwrap())).await.unwrap();
-   let SocketRef = Arc::new(socket);
+   let socket_ref = Arc::new(socket);
 
    // Address and port of the server
    let address =  String::new();
@@ -45,34 +45,39 @@ async fn main(){
 
    // List of clients represented by their address and their ID
    let mut clients: Mutex<HashMap<u64, SocketAddr>> = Mutex::new(HashMap::default()); // <Client ID, address>
-   let clientsRef = Arc::new(clients);
+   let clients_ref = Arc::new(clients);
 
    // List of clients ping
-   let clients_ping: HashMap<u64, u128> = HashMap::default(); // <Client ID, Ping in timestamp>
-   let pings: Arc<Mutex<HashMap<u8, u128>>> = Arc::new(Mutex::new(HashMap::default()));
+   let clients_ping_ref: Arc<Mutex<HashMap<u64, u128>>> = Arc::new(Mutex::new(HashMap::default())); // <Client ID, Ping in ms>
+   let pings_ref: Arc<Mutex<HashMap<u8, u128>>> = Arc::new(Mutex::new(HashMap::default())); // <Ping ID, reference time in ms>
 
    println!("[Server] Server variables successfully initialized");
 
    // =============================
    //    Spawning async functions
    // =============================
-   b_running = true;
-   #[allow(unused)]
-   tokio::spawn(datagrams_handler(SocketRef.clone(), clientsRef.clone(), root_ref.clone())).await;
-   #[allow(unused)]
-   tokio::spawn(ping_sender(SocketRef.clone(), clientsRef.clone(), )).await;
+   b_running = Arc::from(true);
+   let datagram_handler = tokio::spawn(datagrams_handler(socket_ref.clone(), clients_ref.clone(), root_ref.clone(), pings_ref.clone(), clients_ping_ref.clone()));
+   let ping_sender = tokio::spawn(ping_sender(socket_ref.clone(), clients_ref.clone(), pings_ref.clone(),b_running.clone()));
 
    println!("[Server] Server is running ...");
+
+   #[allow(unused)]
+   let (res1, res2) = join!(datagram_handler, ping_sender);
 }
 
 /*
    This method handle every incoming datagram in the broker
    @param receiver Arc<UdpSocket> : An atomic reference of the UDP socket of the server
+   @param clients_ref Arc<Mutex<HashMap<u64, SocketAddr>>> : An atomic reference of the clients HashMap. The map is protected by a mutex to be thread safe
+   @param root_ref Arc<Mutex<TopicV2>> : An atomic reference of root topics, protected by a mutex to be thread safe
  */
 async fn datagrams_handler(
    receiver : Arc<UdpSocket>,
    clients_ref: Arc<Mutex<HashMap<u64, SocketAddr>>>,
-   root_ref: Arc<Mutex<TopicV2>>
+   root_ref: Arc<Mutex<TopicV2>>,
+   pings_ref: Arc<Mutex<HashMap<u8, u128>>>,
+   clients_ping_ref : Arc<Mutex<HashMap<u64, u128>>>
 ){
    println!("[Server Handler] Datagrams Handler spawned");
    // infinite loop receiving listening for datagrams
@@ -133,6 +138,13 @@ async fn datagrams_handler(
                MessageType::PONG => {
                   // 4.8 - A user is trying to answer a ping request
                   println!("[Server Handler] {} is trying to answer a ping request", src.ip());
+                  let time = SystemTime::now()
+                      .duration_since(UNIX_EPOCH)
+                      .unwrap()
+                      .as_millis(); // Current time in ms
+                  let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
+
+                  handle_pong(client_id, buf[1], time, pings_ref.clone(),clients_ping_ref.clone()).await;
                }
                MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING => {
                   // 4.1 - A user is trying to connect to the server
@@ -153,11 +165,34 @@ async fn datagrams_handler(
 }
 
 /*
-   This method handle every incoming datagram in the broker
-   @param receiver Arc<UdpSocket> : An atomic reference of the UDP socket of the server
+   This method send ping request to every connected clients
+   @param sender Arc<UdpSocket> : An atomic reference of the UDP socket of the server
+   @param clients Arc<Mutex<HashMap<u64, SocketAddr>>> : An atomic reference of the clients HashMap. The map is protected by a mutex to be thread safe
+   @param pings Arc<Mutex<HashMap<u8, u128>>> : An atomic reference of the pings HashMap. The map is protected by a mutex to be thread safe
+   @param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
  */
-async fn ping_sender(sender : Arc<UdpSocket>, clients : Arc<Mutex<HashMap<u64, SocketAddr>>>) {
-
+async fn ping_sender(
+   sender : Arc<UdpSocket>,
+   clients : Arc<Mutex<HashMap<u64, SocketAddr>>>,
+   pings : Arc<Mutex<HashMap<u8, u128>>>,
+   b_running : Arc<bool>
+) {
+   println!("[Server Ping] Ping sender spawned");
+   // Send ping request while the server is running
+   while *b_running {
+      // 1 - Send a ping request to every client
+      for(id_client, client_addr) in clients.lock().await.iter(){
+         let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone()).await).as_bytes(), client_addr).await;
+         match result {
+            Ok(bytes) => {
+               println!("[Server Ping] Send {} bytes to {}", bytes, client_addr.ip());
+            }
+            Err(_) => {
+               println!("[Server Ping] Failed to send ping request to {}", client_addr.ip());
+            }
+         }
+      }
+      // 2 - wait 10 sec before ping everyone again
+      sleep(Duration::from_secs(10)).await;
+   }
 }
-
-

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use rand::Rng;
 use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, MutexGuard};
@@ -29,6 +30,27 @@ pub fn get_new_id(clients: MutexGuard<HashMap<u64, SocketAddr>>) -> u64 {
     return nb;
 }
 
+fn get_new_ping_id(pings: MutexGuard<HashMap<u8, u128>>) -> u8 {
+    let mut rng = rand::thread_rng();
+    let mut nb: u8 = rng.gen();
+    if pings.contains_key(&nb) {
+        nb = get_new_ping_id(pings);
+    }
+    return nb;
+}
+
+pub async fn get_client_id(
+    src : &SocketAddr,
+    clients : Arc<Mutex<HashMap<u64, SocketAddr>>>
+) -> Option<u64> {
+    for (key, val) in clients.lock().await.iter() {
+        if val == src {
+            return Some(*key);
+        }
+    }
+    None
+}
+
 pub async fn handle_connect(src: SocketAddr, clients : Arc<Mutex<HashMap<u64, SocketAddr>>>, socket : Arc<UdpSocket>) {
     let (is_connected, current_id) = already_connected(&src.ip(),clients.lock().await).await;
     let uuid;
@@ -50,11 +72,45 @@ pub async fn handle_connect(src: SocketAddr, clients : Arc<Mutex<HashMap<u64, So
             println!("[Server Handler] Send {} bytes to {}", bytes, src.ip());
         }
         Err(_) => {
-            println!("[Server Handler] Failed to send Connect ACK to {}", src);
+            println!("[Server Handler] Failed to send Connect ACK to {}", src.ip());
         }
     }
 }
 
 pub async fn create_topics(path: &str, root : Arc<Mutex<TopicV2>>) -> u64 {
     TopicV2::create_topicsGPT(path, root.lock().await)
+}
+
+
+pub async fn get_new_ping_reference(pings : Arc<Mutex<HashMap<u8, u128>>>) -> u8{
+    let key = get_new_ping_id(pings.lock().await);
+
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis(); // Current time in ms
+
+    pings.lock().await.insert(key, time);
+    println!("[Server Ping] New ping reference created. Id : {}", key);
+    return key;
+}
+
+pub async fn handle_pong(
+    client_id : u64,
+    ping_id : u8,
+    current_time : u128,
+    pings_ref: Arc<Mutex<HashMap<u8, u128>>>,
+    clients_ping: Arc<Mutex<HashMap<u64, u128>>>
+){
+    // 1 - get the mutable ref of all ping request
+    let mut pings_ref_mut = pings_ref.lock().await;
+    // 2 - compute the round trip
+    let round_trip = (current_time - pings_ref_mut.get(&ping_id).unwrap()) /2;
+    // 3 - free the ping_id
+    pings_ref_mut.remove(&ping_id);
+    // 4 - set the ping for the client_id
+    clients_ping.lock().await.entry(client_id)
+        .and_modify(|v| *v = round_trip)
+        .or_insert(round_trip);
+    println!("[Server Ping] There is {}ms of ping between {} and the server", round_trip, client_id);
 }
