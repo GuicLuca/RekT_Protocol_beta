@@ -1,8 +1,5 @@
 #![allow(non_camel_case_types)]
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
 use crate::ps_common::get_bytes_from_slice;
 
 /** ==================================
@@ -14,7 +11,7 @@ use crate::ps_common::get_bytes_from_slice;
 
 // Message type are used to translate
 // request type to the corresponding code
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum MessageType {
     CONNECT,
@@ -33,14 +30,7 @@ pub enum MessageType {
     UNKNOWN,
 }
 
-pub fn get_bytes_as_slice(buffer: &[u8], from: u8, to: u8) {
-    if to > from {
-        panic!("From need to be lower than the to");
-    }
-    let mut arr = [0u8; 8];
-    arr.copy_from_slice(&buffer[2..10]);
-    let peer_id = u64::from_le_bytes(arr);
-}
+impl Eq for MessageType {}
 
 impl From<u8> for MessageType {
     fn from(value: u8) -> Self {
@@ -375,7 +365,7 @@ impl RQ_Heartbeat {
 }
 
 impl From<&[u8]> for RQ_Heartbeat {
-    fn from(buffer: &[u8]) -> Self {
+    fn from(_buffer: &[u8]) -> Self {
         RQ_Heartbeat {
             message_type: MessageType::HEARTBEAT
         }
@@ -402,7 +392,7 @@ impl RQ_Heartbeat_Request {
 }
 
 impl From<&[u8]> for RQ_Heartbeat_Request {
-    fn from(buffer: &[u8]) -> Self {
+    fn from(_buffer: &[u8]) -> Self {
         RQ_Heartbeat_Request {
             message_type: MessageType::HEARTBEAT_REQUEST
         }
