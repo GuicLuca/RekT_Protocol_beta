@@ -117,12 +117,13 @@ async fn datagrams_handler(
                 // 4 - if OK match on the first byte (MESSAGE_TYPE)
                 println!("[Server Handler] Received {} bytes from {}", n, src);
 
-                /*if !(MessageType::from(buf[0]) == MessageType::CONNECT ||
-                    get_client_id(&src, clients_ref.clone()).await.is_none())
+                if (MessageType::from(buf[0]) != MessageType::CONNECT) &&
+                    get_client_id(&src, clients_ref.clone()).await.is_none()
                 {
                     // Do not handle the datagram if the source is not auth and is not trying to connect
+                    println!("[Server Handler] Datagrams dropped from {}. Error : Not connected and not trying to connect.", src.ip());
                     continue;
-                }*/
+                }
 
                 match MessageType::from(buf[0]) {
                     MessageType::CONNECT => {
@@ -239,12 +240,10 @@ async fn ping_sender(
 ) {
     println!("[Server Ping] Ping sender spawned for {}", client_id);
     // 1 - get the client address
-    let clients_read = clients.read().await;
-    let client_addr = clients_read.get(&client_id).unwrap();
-    // TODO : pourquoi ça se stope pas????
+    let client_addr =  *clients.read().await.get(&client_id).unwrap();
+
     // 2 - Loop while server is running and client is online
-    while *b_running && clients_read.contains_key(&client_id) {
-        println!("[Server Ping] client in array : {}", clients_read.contains_key(&client_id));
+    while *b_running && is_online(client_id, clients.clone()).await {
         // 3 - Send a ping request to the client
         let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone()).await).as_bytes(), client_addr).await;
         match result {
@@ -282,13 +281,11 @@ async fn heartbeat_checker(
 ) {
     println!("[Server HeartBeat] Ping sender spawned for {}", client_id);
     // 1 - Init local variables
-    let clients_read = clients.read().await;
-    let client_addr = clients_read.get(&client_id).unwrap();
-
     let mut missed_heartbeats: u8 = 0; // used to count how many HB are missing
+    let client_addr =  *clients.read().await.get(&client_id).unwrap();
 
-    // 2 - Loop while the server is running and the client is online
-    while *b_running && clients_read.contains_key(&client_id) {
+    // 2 - Loop while server is running and client is online
+    while *b_running && is_online(client_id, clients.clone()).await {
         // 3 - waite for the heartbeat period
         sleep(Duration::from_secs(HEART_BEAT_PERIOD as u64)).await;
 
@@ -346,10 +343,19 @@ async fn heartbeat_checker(
         } else {
             // 7bis - reset flags variable
             missed_heartbeats = 0;
+            let result = sender.send_to(&RQ_Heartbeat::new().as_bytes(), client_addr).await;
+            match result {
+                Ok(_) => {
+                    println!("[Server HeartBeat] Respond to client bytes (HeartBeat) to {}", client_id);
+                }
+                Err(_) => {
+                    println!("[Server HeartBeat] Failed to send RQ_HeartBeat to {}", client_id);
+                }
+            }
         }
     }
 
     // 9 - End the task
     client_has_heartbeat_ref.write().await.remove(&client_id);
-    println!("[Server HeartBeat] Ping sender destroyed for {}", client_id);
+    println!("[Server HeartBeat] Heartbeat checker destroyed for {}", client_id);
 }

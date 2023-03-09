@@ -132,8 +132,8 @@ pub async fn handle_disconnect(
         ping_sender => clients_ping_ref
         heartbeat_checker => client_heartbeat_ref
      */
-    println!("[Server] Disconnect {}", client_id);
     clients_ref.write().await.remove(&client_id);
+    println!("[Server] Disconnect {}", client_id);
 }
 
 pub async fn create_topics(path: &str, root: Arc<Mutex<TopicV2>>) -> u64 {
@@ -184,4 +184,14 @@ pub async fn handle_pong(
         .and_modify(|v| *v = round_trip)
         .or_insert(round_trip);
     println!("[Server Ping] There is {}ms of ping between {} and the server", round_trip, client_id);
+}
+
+
+pub async fn is_online(
+    client_id: u64,
+    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+) -> bool
+{
+    let clients_read = clients.read().await;
+    return clients_read.contains_key(&client_id);
 }
