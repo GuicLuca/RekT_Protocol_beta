@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::Display;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -19,7 +20,7 @@ mod ps_common;
 mod ps_server_lib;
 
 
-const HEART_BEAT_PERIOD: u16 = 5; // periode
+const HEART_BEAT_PERIOD: u16 = 5; // period
 
 #[tokio::main]
 async fn main() {
@@ -60,6 +61,9 @@ async fn main() {
     // List of client heartbeat_status
     let client_has_heartbeat_ref: Arc<RwLock<HashMap<u64, bool>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, has_heartbeat>
 
+    // List of client's subscribed topic
+    let clients_topics_ref : Arc<RwLock<HashMap<u64, Vec<u64>>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, [TopicsID]>
+
     println!("[Server] Server variables successfully initialized");
 
     // =============================
@@ -74,6 +78,7 @@ async fn main() {
         clients_ping_ref.clone(),
         b_running.clone(),
         client_has_heartbeat_ref.clone(),
+        clients_topics_ref.clone(),
     ));
     //let ping_sender = tokio::spawn(ping_sender(socket_ref.clone(), clients_ref.clone(), pings_ref.clone(),b_running.clone()));
 
@@ -103,6 +108,7 @@ async fn datagrams_handler(
     clients_ping_ref: Arc<RwLock<HashMap<u64, u128>>>,
     b_running: Arc<bool>,
     client_has_heartbeat_ref: Arc<RwLock<HashMap<u64, bool>>>,
+    clients_topics_ref : Arc<RwLock<HashMap<u64, Vec<u64>>>>,
 ) {
     println!("[Server Handler] Datagrams Handler spawned");
     // infinite loop receiving listening for datagrams
@@ -121,7 +127,7 @@ async fn datagrams_handler(
                     get_client_id(&src, clients_ref.clone()).await.is_none()
                 {
                     // Do not handle the datagram if the source is not auth and is not trying to connect
-                    println!("[Server Handler] Datagrams dropped from {}. Error : Not connected and not trying to connect.", src.ip());
+                    println!("[Server Handler] Datagrams dropped from {}. Error : Not connected and trying to {}.", src.ip(), display(MessageType::from(buf[0])));
                     continue;
                 }
 
@@ -174,19 +180,8 @@ async fn datagrams_handler(
                         // 4.7 - A user is trying to request a new topic
                         let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
                         println!("[Server Handler] {} is trying to request a new topic", client_id);
-                        let topic_path = String::from_utf8(buf[1..].to_vec()).unwrap();
-
-                        let topic_id = create_topics(&topic_path, root_ref.clone()).await;
-
-                        let result = receiver.send_to(&RQ_TopicRequest_ACK::new(TopicsResponse::SUCCESS, topic_id).as_bytes(), src).await;
-                        match result {
-                            Ok(bytes) => {
-                                println!("[Server Handler] Send {} bytes to {}", bytes, src.ip());
-                            }
-                            Err(_) => {
-                                println!("[Server Handler] Failed to send ACK to {}", src.ip());
-                            }
-                        }
+                        #[allow(unused)]
+                            let handler = tokio::spawn(topics_request_handler(receiver.clone(), buf, client_id, clients_ref.clone(), b_running.clone(), clients_topics_ref.clone(), root_ref.clone()));
                     }
                     MessageType::PONG => {
                         // 4.8 - A user is trying to answer a ping request
@@ -358,4 +353,38 @@ async fn heartbeat_checker(
     // 9 - End the task
     client_has_heartbeat_ref.write().await.remove(&client_id);
     println!("[Server HeartBeat] Heartbeat checker destroyed for {}", client_id);
+}
+
+
+/**
+*/
+async fn topics_request_handler(
+    sender: Arc<UdpSocket>,
+    buffer : [u8; 1024],
+    client_id: u64,
+    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    b_running: Arc<bool>,
+    clients_topics: Arc<RwLock<HashMap<u64, Vec<u64>>>>,
+    root_ref: Arc<Mutex<TopicV2>>,
+){
+    // 1 - Init local variables
+    let client_addr =  *clients.read().await.get(&client_id).unwrap();
+    let topic_path = String::from_utf8(buffer[1..].to_vec()).unwrap();
+    let request
+
+    // 3 - Construct the topic and get his id
+    let topic_id = create_topics(&topic_path, root_ref.clone()).await;
+
+
+
+
+    let result = sender.send_to(&RQ_TopicRequest_ACK::new(TopicsResponse::SUCCESS, topic_id).as_bytes(), client_addr).await;
+    match result {
+        Ok(bytes) => {
+            println!("[Server Handler] Send {} bytes to {}", bytes, client_id);
+        }
+        Err(_) => {
+            println!("[Server Handler] Failed to send ACK to {}", client_id);
+        }
+    }
 }

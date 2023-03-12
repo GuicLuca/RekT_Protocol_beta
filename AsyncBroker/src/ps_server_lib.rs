@@ -67,7 +67,7 @@ fn get_new_ping_id() -> u8 {
 /**
 This methods return the id of the given client
 @param src &SocketAddr : The tested client
-@param clients MutexGuard<HashMap<u64, Socke tAddr>> : Hashmap containing all clients address and clients id.
+@param clients MutexGuard<HashMap<u64, SocketAddr>> : Hashmap containing all clients address and clients id.
 
 @return Option<u64>
  */
