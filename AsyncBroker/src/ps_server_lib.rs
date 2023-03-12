@@ -136,7 +136,7 @@ pub async fn handle_disconnect(
     println!("[Server] Disconnect {}", client_id);
 }
 
-pub async fn create_topics(path: &str, root: Arc<Mutex<TopicV2>>) -> u64 {
+pub async fn create_topics(path: &str, root: Arc<Mutex<TopicV2>>) -> Result<u64, String> {
     TopicV2::create_topicsGPT(path, root.lock().await)
 }
 

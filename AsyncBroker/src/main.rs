@@ -24,8 +24,7 @@ const HEART_BEAT_PERIOD: u16 = 5; // period
 
 #[tokio::main]
 async fn main() {
-    println!("[Server] Hi there ! Chose the port of for the server :");
-    let port = ps_common::get_cli_input("Input port : ", "Cannot get the port form the cli input.", None, None, true);
+    let port = ps_common::get_cli_input("[Server] Hi there ! Chose the port of for the server :", "Cannot get the port form the cli input.", None, None, true);
 
     println!("[Server]  The ip of the server is {}:{}", local_ip().unwrap(), port);
 
@@ -370,15 +369,33 @@ async fn topics_request_handler(
     // 1 - Init local variables
     let client_addr =  *clients.read().await.get(&client_id).unwrap();
     let topic_path = String::from_utf8(buffer[1..].to_vec()).unwrap();
-    let request
+
+    // 2 - create topic rq
+    let topic_rq = RQ_TopicRequest::from(buffer.as_ref());
+
+    match topic_rq.action {
+        TopicsAction::SUBSCRIBE => {
+
+        }
+        TopicsAction::UNSUBSCRIBE => {
+
+        }
+        TopicsAction::UNKNOWN => {
+
+        }
+    }
 
     // 3 - Construct the topic and get his id
-    let topic_id = create_topics(&topic_path, root_ref.clone()).await;
+    let topic_result = create_topics(&topic_path, root_ref.clone()).await;
+    let result;
+
+    match topic_result {
+        Ok(topic_id) => result = sender.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_SUB).as_bytes(), client_addr).await,
+        Err(_) => result = sender.send_to(&RQ_TopicRequest_NACK::new( TopicsResponse::FAILURE_SUB, "Subscribing to {} failed :(".to_string()).as_bytes(), client_addr).await,
+    }
 
 
 
-
-    let result = sender.send_to(&RQ_TopicRequest_ACK::new(TopicsResponse::SUCCESS, topic_id).as_bytes(), client_addr).await;
     match result {
         Ok(bytes) => {
             println!("[Server Handler] Send {} bytes to {}", bytes, client_id);

@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
+
 use tokio::sync::MutexGuard;
 
 #[derive(Debug, Clone)]
 pub struct TopicV2 {
     pub(crate) id: u64,
     pub(crate) sub_topics: Vec<TopicV2>,
-    pub(crate) name : String,
+    pub(crate) name: String,
 }
 
 impl Hash for TopicV2 {
@@ -25,11 +26,11 @@ impl PartialEq for TopicV2 {
 impl Eq for TopicV2 {}
 
 impl TopicV2 {
-    pub fn new(id: u64, name : String) -> TopicV2 {
+    pub fn new(id: u64, name: String) -> TopicV2 {
         TopicV2 {
             id,
             sub_topics: Vec::new(),
-            name : String::from(name),
+            name: String::from(name),
         }
     }
 
@@ -37,18 +38,30 @@ impl TopicV2 {
         self.sub_topics.push(sub_topic);
     }
 
-    pub fn create_topicsGPT(path: &str, mut root: MutexGuard<TopicV2>) -> u64 {
+    pub fn create_topicsGPT(path: &str, mut root: MutexGuard<TopicV2>) -> Result<u64, String> {
         let mut last_created_topic_id = root.id;
-        let topic_names: Vec<&str> = path.split("/").collect();
+        if path.len() == 0 || path.chars().nth(0).unwrap() != '/' {
+            return Err("Invalid Path".to_string())
+        }
+        let mut topic_names: Vec<&str> = path.split("/").collect();
 
-        let mut current_topic =&mut *root;
+        topic_names.remove(0);
+
+        if topic_names.is_empty() {
+            return Err("c vid :c".to_string())
+        }
+
+        let mut topic_hash = String::from("");
+
+        let mut current_topic = &mut *root;
         for topic_name in topic_names {
+            topic_hash = topic_hash + "/" + topic_name;
             if topic_name.is_empty() {
-                continue;
+                return Err("il s'est passé une dingeureie (topic_name is empty)".to_string())
             }
             let topic_id = {
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                topic_name.hash(&mut hasher);
+                topic_hash.hash(&mut hasher);
                 hasher.finish()
             };
 
@@ -56,13 +69,13 @@ impl TopicV2 {
             if let Some(idx) = existing_topic_idx {
                 current_topic = &mut current_topic.sub_topics[idx];
             } else {
-                let mut new_topic = TopicV2::new(topic_id,topic_name.to_string());
+                let mut new_topic = TopicV2::new(topic_id, topic_name.to_string());
                 current_topic.sub_topics.push(new_topic);
                 let new_topic_idx = current_topic.sub_topics.len() - 1;
                 current_topic = &mut current_topic.sub_topics[new_topic_idx];
             }
             last_created_topic_id = topic_id;
         }
-        last_created_topic_id
+        Ok(last_created_topic_id)
     }
 }
