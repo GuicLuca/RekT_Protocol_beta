@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 use std::path::Display;
 use std::sync::Arc;
@@ -10,6 +11,7 @@ use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
+use crate::ps_common::get_bytes_from_slice;
 use crate::ps_datagram_structs::*;
 use crate::ps_server_lib::*;
 use crate::topic_v2::TopicV2;
@@ -61,7 +63,7 @@ async fn main() {
     let client_has_heartbeat_ref: Arc<RwLock<HashMap<u64, bool>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, has_heartbeat>
 
     // List of client's subscribed topic
-    let clients_topics_ref : Arc<RwLock<HashMap<u64, Vec<u64>>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, [TopicsID]>
+    let clients_topics_ref: Arc<RwLock<HashMap<u64, HashSet<u64>>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, [TopicsID]>
 
     println!("[Server] Server variables successfully initialized");
 
@@ -107,7 +109,7 @@ async fn datagrams_handler(
     clients_ping_ref: Arc<RwLock<HashMap<u64, u128>>>,
     b_running: Arc<bool>,
     client_has_heartbeat_ref: Arc<RwLock<HashMap<u64, bool>>>,
-    clients_topics_ref : Arc<RwLock<HashMap<u64, Vec<u64>>>>,
+    clients_topics_ref: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
 ) {
     println!("[Server Handler] Datagrams Handler spawned");
     // infinite loop receiving listening for datagrams
@@ -234,7 +236,7 @@ async fn ping_sender(
 ) {
     println!("[Server Ping] Ping sender spawned for {}", client_id);
     // 1 - get the client address
-    let client_addr =  *clients.read().await.get(&client_id).unwrap();
+    let client_addr = *clients.read().await.get(&client_id).unwrap();
 
     // 2 - Loop while server is running and client is online
     while *b_running && is_online(client_id, clients.clone()).await {
@@ -276,7 +278,7 @@ async fn heartbeat_checker(
     println!("[Server HeartBeat] Ping sender spawned for {}", client_id);
     // 1 - Init local variables
     let mut missed_heartbeats: u8 = 0; // used to count how many HB are missing
-    let client_addr =  *clients.read().await.get(&client_id).unwrap();
+    let client_addr = *clients.read().await.get(&client_id).unwrap();
 
     // 2 - Loop while server is running and client is online
     while *b_running && is_online(client_id, clients.clone()).await {
@@ -356,45 +358,59 @@ async fn heartbeat_checker(
 
 
 /**
-*/
+ */
 async fn topics_request_handler(
     sender: Arc<UdpSocket>,
-    buffer : [u8; 1024],
+    buffer: [u8; 1024],
     client_id: u64,
     clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
     b_running: Arc<bool>,
-    clients_topics: Arc<RwLock<HashMap<u64, Vec<u64>>>>,
+    clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
     root_ref: Arc<Mutex<TopicV2>>,
-){
+) {
     // 1 - Init local variables
-    let client_addr =  *clients.read().await.get(&client_id).unwrap();
-    let topic_path = String::from_utf8(buffer[1..].to_vec()).unwrap();
-
-    // 2 - create topic rq
+    let client_addr = *clients.read().await.get(&client_id).unwrap();
     let topic_rq = RQ_TopicRequest::from(buffer.as_ref());
+
+    let topic_path = String::from_utf8(topic_rq.payload).unwrap();
+
+    let result;
 
     match topic_rq.action {
         TopicsAction::SUBSCRIBE => {
+            let topic_result = create_topics(&topic_path, root_ref.clone()).await;
 
+            match topic_result {
+                Ok(topic_id) => {
+                    clients_topics.write().await.entry(topic_id)
+                        .and_modify(|vec| {
+                            vec.insert(client_id);
+                        })
+                        .or_insert({
+                            let mut tmp = HashSet::new();
+                            tmp.insert(client_id);
+                            tmp
+                        });
+                    result = sender.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_SUB).as_bytes(), client_addr).await;
+                }
+                Err(_) => result = sender.send_to(&RQ_TopicRequest_NACK::new(TopicsResponse::FAILURE_SUB, "Subscribing to {} failed :(".to_string()).as_bytes(), client_addr).await,
+            }
         }
         TopicsAction::UNSUBSCRIBE => {
+            let topic_id = {
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                topic_path.hash(&mut hasher);
+                hasher.finish()
+            };
 
+            clients_topics.write().await.entry(topic_id).and_modify(|vec| { vec.retain(|e| *e != client_id) });
+
+            result = sender.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_USUB).as_bytes(), client_addr).await;
         }
         TopicsAction::UNKNOWN => {
-
+            result = Result::Ok(0);
         }
     }
-
-    // 3 - Construct the topic and get his id
-    let topic_result = create_topics(&topic_path, root_ref.clone()).await;
-    let result;
-
-    match topic_result {
-        Ok(topic_id) => result = sender.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_SUB).as_bytes(), client_addr).await,
-        Err(_) => result = sender.send_to(&RQ_TopicRequest_NACK::new( TopicsResponse::FAILURE_SUB, "Subscribing to {} failed :(".to_string()).as_bytes(), client_addr).await,
-    }
-
-
 
     match result {
         Ok(bytes) => {
