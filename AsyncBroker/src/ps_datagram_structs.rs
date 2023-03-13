@@ -617,7 +617,6 @@ pub struct RQ_TopicRequest_NACK {
     pub status: TopicsResponse,
     pub size: Size,
     pub error_message: String
-    // black magic
 }
 
 impl RQ_TopicRequest_NACK {
@@ -650,6 +649,45 @@ impl From<&[u8]> for RQ_TopicRequest_NACK {
 }
 
 
+pub struct RQ_Data{
+    pub message_type: MessageType,
+    pub size: Size,
+    pub topic_id: u64,
+    pub data: Vec<u8>
+}
+impl RQ_Data {
+
+    pub fn new(topic_id: u64, payload: Vec<u8>)-> RQ_Data {
+        let size = Size::new((payload.len() + 8) as u16); // payload length + 8 for topic id
+        RQ_Data{message_type:MessageType::DATA, topic_id, size, data: payload }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes = [u8::from(self.message_type)].to_vec();
+        bytes.append(&mut self.size.size.to_le_bytes().to_vec());
+        bytes.append(&mut self.topic_id.to_le_bytes().to_vec());
+        bytes.append(&mut self.data.clone());
+
+        return bytes;
+    }
+}
+
+impl From<&[u8]> for RQ_Data {
+    fn from(buffer: &[u8]) -> Self {
+        let size = Size::new(u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap()));
+        let data_end = 11 + (size.size - 8) as usize;
+
+        RQ_Data {
+            message_type: MessageType::DATA,
+            size,
+            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 3, 10).to_vec().try_into().expect("Failed to get the topic id slice from the buffer")),
+            data: buffer[11..data_end].to_vec(),
+        }
+    }
+}
+
+
 /*
 //===== Sent to acknowledge a TOPIC_REQUEST
 pub struct RQ_ObjectRequest{
@@ -676,14 +714,5 @@ impl RQ_ObjectRequest_ACK {
 }
 
 //===== Sent to acknowledge a TOPIC_REQUEST
-pub struct RQ_Data{
-    pub message_type: MessageType,
-    pub status: TopicsResponse,
-    pub topic_id: u64
-}
-impl RQ_Data {
-    pub const fn new(status: TopicsResponse, topic_id: u64)-> RQ_Data {
-        RQ_Data{message_type:MessageType::TOPIC_REQUEST_ACK, status, topic_id}
-    }
-}
+
 */

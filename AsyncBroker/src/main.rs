@@ -26,6 +26,12 @@ const HEART_BEAT_PERIOD: u16 = 5; // period
 
 #[tokio::main]
 async fn main() {
+
+    // hash "hello world" with default hasher for testing propose
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    "Hello, world!".hash(&mut hasher);
+    println!("Hash of \"Hello, world!\" is {:#}!", hasher.finish());
+
     let port = ps_common::get_cli_input("[Server] Hi there ! Chose the port of for the server :", "Cannot get the port form the cli input.", None, None, true);
 
     println!("[Server]  The ip of the server is {}:{}", local_ip().unwrap(), port);
@@ -149,6 +155,8 @@ async fn datagrams_handler(
                         // 4.2 - A user is trying to sent data to the server
                         let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
                         println!("[Server Handler] {} is trying to sent data", client_id);
+                        #[allow(unused)]
+                            let handler = tokio::spawn(handle_data(receiver.clone(), buf, client_id, clients_ref.clone(), clients_topics_ref.clone()));
                     }
                     MessageType::OPEN_STREAM => {
                         // 4.3 - A user is trying to open a new stream
@@ -214,6 +222,22 @@ async fn datagrams_handler(
         }
     }
 }
+
+async fn handle_data(sender: Arc<UdpSocket>, buffer: [u8; 1024], client_id: u64, clients: Arc<RwLock<HashMap<u64, SocketAddr>>>, clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>) {
+    let data_rq = RQ_Data::from(buffer.as_ref());
+
+
+    let mut intrested_clients = clients_topics.read().await.get(&data_rq.topic_id).unwrap().clone();
+    intrested_clients.remove(&client_id);
+    for client in intrested_clients {
+        let client_addr = *clients.read().await.get(&client).unwrap();
+        let data = RQ_Data::new(data_rq.topic_id, data_rq.data.clone());
+        let data = data.as_bytes();
+        let result = sender.send_to(&data, client_addr).await.unwrap();
+        println!("[Data Handler] Sent {} bytes to {}", result, client_addr);
+    }
+}
+
 
 /**
 This method send ping request to every connected clients
