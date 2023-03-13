@@ -46,7 +46,7 @@ async fn main() {
 
     // Root topic which can be subscribed by clients
     // Every topics have sub topic to them, you can go through each one like in a tree
-    let root = Mutex::new(TopicV2::new(1, "/".to_string())); // default root topics is "/"
+    let root = RwLock::new(TopicV2::new(1, "/".to_string())); // default root topics is "/"
     let root_ref = Arc::new(root);
 
 
@@ -93,7 +93,7 @@ async fn main() {
 This method handle every incoming datagram in the broker
 @param receiver Arc<UdpSocket> : An atomic reference of the UDP socket of the server
 @param clients_ref Arc<RwLock<HashMap<u64, SocketAddr>>> : An atomic reference of the clients HashMap. The map is protected by a rwLock to be thread safe
-@param root_ref Arc<Mutex<TopicV2>> : An atomic reference of root topics, protected by a mutex to be thread safe
+@param root_ref Arc<RwLock<TopicV2>> : An atomic reference of root topics, protected by a rwlock to be thread safe
 @param pings_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of the pings time references, protected by a mutex to be thread safe
 @param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a rwLock to be thread safe
 @param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
@@ -104,7 +104,7 @@ This method handle every incoming datagram in the broker
 async fn datagrams_handler(
     receiver: Arc<UdpSocket>,
     clients_ref: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-    root_ref: Arc<Mutex<TopicV2>>,
+    root_ref: Arc<RwLock<TopicV2>>,
     pings_ref: Arc<Mutex<HashMap<u8, u128>>>,
     clients_ping_ref: Arc<RwLock<HashMap<u64, u128>>>,
     b_running: Arc<bool>,
@@ -366,7 +366,7 @@ async fn topics_request_handler(
     clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
     b_running: Arc<bool>,
     clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
-    root_ref: Arc<Mutex<TopicV2>>,
+    root_ref: Arc<RwLock<TopicV2>>,
 ) {
     // 1 - Init local variables
     let client_addr = *clients.read().await.get(&client_id).unwrap();
