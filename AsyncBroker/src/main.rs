@@ -22,7 +22,7 @@ mod ps_common;
 mod ps_server_lib;
 
 
-const HEART_BEAT_PERIOD: u16 = 5; // period
+const HEART_BEAT_PERIOD: u16 = 60; // period
 
 #[tokio::main]
 async fn main() {

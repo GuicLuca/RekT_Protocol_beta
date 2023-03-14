@@ -681,7 +681,7 @@ impl From<&[u8]> for RQ_Data {
         RQ_Data {
             message_type: MessageType::DATA,
             size,
-            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 3, 10).to_vec().try_into().expect("Failed to get the topic id slice from the buffer")),
+            topic_id: u64::from_le_bytes(buffer[3..].split_at(std::mem::size_of::<u64>()).0.try_into().unwrap()),
             data: buffer[11..data_end].to_vec(),
         }
     }
