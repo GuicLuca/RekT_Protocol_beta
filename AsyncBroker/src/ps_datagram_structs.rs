@@ -542,10 +542,10 @@ impl From<&[u8]> for RQ_OpenStream {
 
 //===== Sent to subscribe/unsubscribe to a topic
 pub struct RQ_TopicRequest {
-    pub message_type: MessageType,
-    pub action: TopicsAction,
-    pub size: Size,
-    pub payload: Vec<u8>,
+    pub message_type: MessageType, // 1 byte
+    pub action: TopicsAction, // 1 byte
+    pub size: Size, // 2 bytes (u16)
+    pub payload: Vec<u8>, // size bytes
 }
 
 impl RQ_TopicRequest {
@@ -650,10 +650,10 @@ impl From<&[u8]> for RQ_TopicRequest_NACK {
 
 
 pub struct RQ_Data{
-    pub message_type: MessageType,
-    pub size: Size,
-    pub topic_id: u64,
-    pub data: Vec<u8>
+    pub message_type: MessageType, // 1 byte
+    pub size: Size, // 2 bytes (u16)
+    pub topic_id: u64, // 8 bytes (u64)
+    pub data: Vec<u8> // size bytes
 }
 impl RQ_Data {
 

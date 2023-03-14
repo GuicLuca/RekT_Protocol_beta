@@ -19,12 +19,6 @@ pub fn send_bytes(mut stream: &TcpStream, bytes: &[u8]) -> bool {
     return true;
 }
 
-pub fn string_to_hash(str: &String) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    str.hash(&mut hasher);
-    return hasher.finish();
-}
-
 
 pub fn get_cli_input(prompt: &str, err_msg: &str, string_match: Option<&Vec<String>>, regex: Option<&Regex>, must_be_i16: bool) -> String {
     let mut is_valid = false;

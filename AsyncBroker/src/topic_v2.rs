@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use tokio::sync::{MutexGuard, RwLock};
 
+use crate::ps_server_lib::custom_string_hash;
+
 #[derive(Debug, Clone)]
 pub struct TopicV2 {
     pub(crate) id: u64,
@@ -40,16 +42,16 @@ impl TopicV2 {
     }
 
     pub async fn create_topicsGPT(path: &str, mut root: Arc<RwLock<TopicV2>>) -> Result<u64, String> {
-        let mut last_created_topic_id = {root.read().await.id};
+        let mut last_created_topic_id = { root.read().await.id };
         if path.len() == 0 || path.chars().nth(0).unwrap() != '/' {
-            return Err("Invalid Path".to_string())
+            return Err("Invalid Path".to_string());
         }
         let mut topic_names: Vec<&str> = path.split("/").collect();
 
         topic_names.remove(0);
 
         if topic_names.is_empty() {
-            return Err("c vid :c".to_string())
+            return Err("c vid :c".to_string());
         }
 
         let mut topic_hash = String::from("");
@@ -58,13 +60,14 @@ impl TopicV2 {
         for topic_name in topic_names {
             topic_hash = topic_hash + "/" + topic_name;
             if topic_name.is_empty() {
-                return Err("il s'est passé une dingeureie (topic_name is empty)".to_string())
+                return Err("il s'est passé une dingeureie (topic_name is empty)".to_string());
             }
-            let topic_id = {
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                topic_hash.hash(&mut hasher);
-                hasher.finish()
-            };
+            let topic_id = custom_string_hash(&topic_hash);
+            //     {
+            //     let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            //     topic_hash.hash(&mut hasher);
+            //     hasher.finish()
+            // };
 
             let new_current_topic = {
                 let mut writeTopic = current_topic.write().await;

@@ -26,12 +26,6 @@ const HEART_BEAT_PERIOD: u16 = 5; // period
 
 #[tokio::main]
 async fn main() {
-
-    // hash "hello world" with default hasher for testing propose
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    "Hello, world!".hash(&mut hasher);
-    println!("Hash of \"Hello, world!\" is {:#}!", hasher.finish());
-
     let port = ps_common::get_cli_input("[Server] Hi there ! Chose the port of for the server :", "Cannot get the port form the cli input.", None, None, true);
 
     println!("[Server]  The ip of the server is {}:{}", local_ip().unwrap(), port);
@@ -421,11 +415,7 @@ async fn topics_request_handler(
             }
         }
         TopicsAction::UNSUBSCRIBE => {
-            let topic_id = {
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                topic_path.hash(&mut hasher);
-                hasher.finish()
-            };
+            let topic_id = custom_string_hash(&topic_path);
 
             clients_topics.write().await.entry(topic_id).and_modify(|vec| { vec.retain(|e| *e != client_id) });
 

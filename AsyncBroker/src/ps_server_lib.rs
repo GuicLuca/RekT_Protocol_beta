@@ -195,3 +195,15 @@ pub async fn is_online(
     let clients_read = clients.read().await;
     return clients_read.contains_key(&client_id);
 }
+
+const FNV_PRIME: u64 = 1099511628211;
+const FNV_OFFSET: u64 = 14695981039346656037;
+
+pub fn custom_string_hash(s: &str) -> u64 {
+    let mut hash = FNV_OFFSET;
+    for b in s.bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
