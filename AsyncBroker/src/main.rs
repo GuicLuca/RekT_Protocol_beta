@@ -157,7 +157,7 @@ async fn datagrams_handler(
                         let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to sent data", client_id), config.clone());
                         #[allow(unused)]
-                            let handler = tokio::spawn(handle_data(receiver.clone(), buf, client_id, clients_ref.clone(), clients_topics_ref.clone()));
+                            let handler = tokio::spawn(handle_data(receiver.clone(), buf, client_id, clients_ref.clone(), clients_topics_ref.clone(), config.clone()));
                     }
                     MessageType::OPEN_STREAM => {
                         // 4.3 - A user is trying to open a new stream
@@ -227,19 +227,20 @@ async fn handle_data(
     buffer: [u8; 1024],
     client_id: u64,
     clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-    clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>
+    clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+    config: Arc<Config>
 ) {
     let data_rq = RQ_Data::from(buffer.as_ref());
 
 
-    let mut intrested_clients = clients_topics.read().await.get(&data_rq.topic_id).unwrap().clone();
-    intrested_clients.remove(&client_id);
-    for client in intrested_clients {
+    let mut interested_clients = clients_topics.read().await.get(&data_rq.topic_id).unwrap().clone();
+    interested_clients.remove(&client_id);
+    for client in interested_clients {
         let client_addr = *clients.read().await.get(&client).unwrap();
         let data = RQ_Data::new(data_rq.topic_id, data_rq.data.clone());
         let data = data.as_bytes();
         let result = sender.send_to(&data, client_addr).await.unwrap();
-        println!("[Data Handler] Sent {} bytes to {}", result, client_addr);
+        log(Info, DataHandler, format!("Sent {} bytes to {}", result, client_addr), config.clone());
     }
 }
 
@@ -264,7 +265,7 @@ async fn ping_sender(
     b_running: Arc<bool>,
     config: Arc<Config>
 ) {
-    println!("[Server Ping] Ping sender spawned for {}", client_id);
+    log(Info, PingSender, format!("Ping sender spawned for {}", client_id), config.clone());
     // 1 - get the client address
     let client_addr = *clients.read().await.get(&client_id).unwrap();
 
@@ -274,10 +275,10 @@ async fn ping_sender(
         let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone()).await).as_bytes(), client_addr).await;
         match result {
             Ok(bytes) => {
-                println!("[Server Ping] Send {} bytes to {}", bytes, client_id);
+                log(Info, PingSender, format!("Send {} bytes to {}", bytes, client_id), config.clone());
             }
-            Err(_) => {
-                println!("[Server Ping] Failed to send ping request to {}", client_id);
+            Err(error) => {
+                log(Error, PingSender, format!("Failed to send ping request to {}.\n{}", client_id, error), config.clone());
             }
         }
         // 4 - wait 10 sec before ping everyone again
@@ -285,7 +286,7 @@ async fn ping_sender(
     }
     // 5 - End the task
     clients_ping_ref.write().await.remove(&client_id);
-    println!("[Server Ping] Ping sender destroyed for {}", client_id);
+    log(Info, PingSender, format!("Ping sender destroyed for {}", client_id), config.clone());
 }
 
 /**

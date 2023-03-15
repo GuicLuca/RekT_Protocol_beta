@@ -28,18 +28,23 @@ pub fn log(
 
     match log_source {
         LogSource::DatagramsHandler => {
+            if !config.debug_datagram_handler {return;}
             println!("[Server - DatagramHandler] {}: {}", display_loglevel(log_level), message);
         }
         LogSource::PingSender => {
+            if !config.debug_ping_sender {return;}
             println!("[Server - PingSender] {}: {}", display_loglevel(log_level), message);
         }
         LogSource::DataHandler => {
+            if !config.debug_data_handler {return;}
             println!("[Server - DataHandler] {}: {}", display_loglevel(log_level), message);
         }
         LogSource::HeartbeatChecker => {
+            if !config.debug_heartbeat_checker {return;}
             println!("[Server - HeartbeatChecker] {}: {}", display_loglevel(log_level), message);
         }
         LogSource::TopicHandler => {
+            if !config.debug_topic_handler {return;}
             println!("[Server - TopicHandler] {}: {}", display_loglevel(log_level), message);
         }
         LogSource::Other => {
