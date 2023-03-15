@@ -219,9 +219,14 @@ async fn datagrams_handler(
 
 async fn handle_data(sender: Arc<UdpSocket>, buffer: [u8; 1024], client_id: u64, clients: Arc<RwLock<HashMap<u64, SocketAddr>>>, clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>) {
     let data_rq = RQ_Data::from(buffer.as_ref());
+    let read_client_topics = clients_topics.read().await;
 
+    if !read_client_topics.contains_key(&data_rq.topic_id) {
+        println!("[Data Handler] Topic {} doesn't exist", data_rq.topic_id);
+        return;
+    }
 
-    let mut intrested_clients = clients_topics.read().await.get(&data_rq.topic_id).unwrap().clone();
+    let mut intrested_clients = read_client_topics.get(&data_rq.topic_id).unwrap().clone();
     intrested_clients.remove(&client_id);
     for client in intrested_clients {
         let client_addr = *clients.read().await.get(&client).unwrap();
