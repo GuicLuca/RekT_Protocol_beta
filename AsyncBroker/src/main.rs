@@ -224,7 +224,8 @@ async fn handle_data(sender: Arc<UdpSocket>, buffer: [u8; 1024], client_id: u64,
     let mut intrested_clients = clients_topics.read().await.get(&data_rq.topic_id).unwrap().clone();
     intrested_clients.remove(&client_id);
     for client in intrested_clients {
-        let client_addr = *clients.read().await.get(&client).unwrap();
+        let client_list_locked = clients.read().await;
+        let client_addr = *client_list_locked.get(&client).unwrap();
         let data = RQ_Data::new(data_rq.topic_id, data_rq.data.clone());
         let data = data.as_bytes();
         let result = sender.send_to(&data, client_addr).await.unwrap();
