@@ -388,12 +388,15 @@ pub async fn handle_disconnect(
      */
 
     // loops trough client_topics topics and remove the client from the topic
-    let read_client_topics = client_topics.read().await;
-    for topic_id in read_client_topics.keys() {
-        let mut write_topic_clients = client_topics.write().await;
-        write_topic_clients.get_mut(topic_id).unwrap().remove(&client_id);
+    let client_topics = &client_topics;
+    let topic_ids: Vec<u64> = {
+        let read_client_topics = client_topics.read().await;
+        read_client_topics.keys().cloned().collect()
+    };
+    let mut write_client_topics = client_topics.write().await;
+    for topic_id in topic_ids {
+        write_client_topics.get_mut(&topic_id).unwrap().remove(&client_id);
     }
-
     clients_ref.write().await.remove(&client_id);
 
     println!("[Server] Disconnect {}", client_id);
