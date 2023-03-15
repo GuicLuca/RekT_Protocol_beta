@@ -122,20 +122,6 @@ pub async fn handle_connect(
     return is_connected;
 }
 
-pub async fn handle_disconnect(
-    clients_ref: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-    client_id: u64,
-) {
-    /* need to clear :
-    clients hashmap => will stop ping_sender task and heartbeat_checker task
-        each task clear his own data
-        ping_sender => clients_ping_ref
-        heartbeat_checker => client_heartbeat_ref
-     */
-    clients_ref.write().await.remove(&client_id);
-    println!("[Server] Disconnect {}", client_id);
-}
-
 pub async fn create_topics(path: &str, root: Arc<RwLock<TopicV2>>) -> Result<u64, String> {
     TopicV2::create_topicsGPT(path, root).await
 }

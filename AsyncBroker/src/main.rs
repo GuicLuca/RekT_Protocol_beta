@@ -142,7 +142,7 @@ async fn datagrams_handler(
                             #[allow(unused)]
                                 let sender = tokio::spawn(ping_sender(receiver.clone(), id, clients_ref.clone(), pings_ref.clone(), clients_ping_ref.clone(), b_running.clone()));
                             #[allow(unused)]
-                                let heartbeat = tokio::spawn(heartbeat_checker(receiver.clone(), id, clients_ref.clone(), client_has_heartbeat_ref.clone(), b_running.clone()));
+                                let heartbeat = tokio::spawn(heartbeat_checker(receiver.clone(), id, clients_ref.clone(), client_has_heartbeat_ref.clone(), b_running.clone(), clients_topics_ref.clone()));
                         }
                     }
                     MessageType::DATA => {
@@ -161,7 +161,7 @@ async fn datagrams_handler(
                         // 4.4 - A user is trying to shutdown the connexion with the server
                         let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
                         println!("[Server Handler] {} is trying to shutdown the connexion with the server", client_id);
-                        handle_disconnect(clients_ref.clone(), client_id).await;
+                        handle_disconnect(clients_ref.clone(), client_id, clients_topics_ref.clone()).await;
                     }
                     MessageType::HEARTBEAT => {
                         // 4.5 - A user is trying to sent an heartbeat
@@ -292,6 +292,7 @@ async fn heartbeat_checker(
     clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
     client_has_heartbeat_ref: Arc<RwLock<HashMap<u64, bool>>>,
     b_running: Arc<bool>,
+    client_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
 ) {
     println!("[Server HeartBeat] Ping sender spawned for {}", client_id);
     // 1 - Init local variables
@@ -351,7 +352,7 @@ async fn heartbeat_checker(
                 }
 
                 // 8.2 - Remove the client from the main array
-                handle_disconnect(clients.clone(), client_id).await;
+                handle_disconnect(clients.clone(), client_id, client_topics.clone()).await;
                 // client's task will end automatically
             }
         } else {
@@ -374,6 +375,29 @@ async fn heartbeat_checker(
     println!("[Server HeartBeat] Heartbeat checker destroyed for {}", client_id);
 }
 
+pub async fn handle_disconnect(
+    clients_ref: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    client_id: u64,
+    client_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+) {
+    /* need to clear :
+    clients hashmap => will stop ping_sender task and heartbeat_checker task
+        each task clear his own data
+        ping_sender => clients_ping_ref
+        heartbeat_checker => client_heartbeat_ref
+     */
+
+    // loops trough client_topics topics and remove the client from the topic
+    let read_client_topics = client_topics.read().await;
+    for topic_id in read_client_topics.keys() {
+        let mut write_topic_clients = client_topics.write().await;
+        write_topic_clients.get_mut(topic_id).unwrap().remove(&client_id);
+    }
+
+    clients_ref.write().await.remove(&client_id);
+
+    println!("[Server] Disconnect {}", client_id);
+}
 
 /**
  */
