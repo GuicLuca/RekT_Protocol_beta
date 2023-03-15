@@ -4,6 +4,7 @@ use std::fmt;
 use std::fmt::Display;
 
 use crate::ps_common::get_bytes_from_slice;
+use crate::ps_config::LogLevel;
 
 /** ==================================
 *
@@ -33,7 +34,7 @@ pub enum MessageType {
     UNKNOWN,
 }
 
-pub fn display(message: MessageType) -> String {
+pub fn display_messagetype(message: MessageType) -> String {
     match message {
         MessageType::CONNECT => "Connect".to_string(),
         MessageType::CONNECT_ACK => "Connect_ACK".to_string(),
@@ -49,6 +50,15 @@ pub fn display(message: MessageType) -> String {
         MessageType::OBJECT_REQUEST_ACK => "Object_Request_Ack".to_string(),
         MessageType::DATA => "Data".to_string(),
         MessageType::UNKNOWN => "Unknown".to_string()
+    }
+}
+
+pub fn display_loglevel(loglevel: LogLevel) -> String {
+    match loglevel {
+        LogLevel::All => "All".to_string(),
+        LogLevel::Info => "Info".to_string(),
+        LogLevel::Warning => "Warning".to_string(),
+        LogLevel::Error => "Error".to_string(),
     }
 }
 

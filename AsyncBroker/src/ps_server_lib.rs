@@ -2,13 +2,52 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-
 use tokio::net::UdpSocket;
-use tokio::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
-
-use crate::HEART_BEAT_PERIOD;
+use tokio::sync::{Mutex, RwLock, RwLockReadGuard};
+use crate::ps_config::{Config, LogLevel};
 use crate::ps_datagram_structs::*;
 use crate::topic_v2::TopicV2;
+
+pub enum  LogSource{
+    DatagramsHandler,
+    PingSender,
+    DataHandler,
+    HeartbeatChecker,
+    TopicHandler,
+    Other,
+}
+
+pub fn log(
+    log_level : LogLevel,
+    log_source: LogSource,
+    message: String,
+    config: Arc<Config>
+){
+    // If log level is under config log level do not show the message
+    if log_level < config.debug_level {return}
+
+    match log_source {
+        LogSource::DatagramsHandler => {
+            println!("[Server - DatagramHandler] {}: {}", display_loglevel(log_level), message);
+        }
+        LogSource::PingSender => {
+            println!("[Server - PingSender] {}: {}", display_loglevel(log_level), message);
+        }
+        LogSource::DataHandler => {
+            println!("[Server - DataHandler] {}: {}", display_loglevel(log_level), message);
+        }
+        LogSource::HeartbeatChecker => {
+            println!("[Server - HeartbeatChecker] {}: {}", display_loglevel(log_level), message);
+        }
+        LogSource::TopicHandler => {
+            println!("[Server - TopicHandler] {}: {}", display_loglevel(log_level), message);
+        }
+        LogSource::Other => {
+            println!("[Server] {}", message);
+        }
+    }
+}
+
 
 /**
 This method return true if the client was already connected, it return the old
@@ -95,6 +134,7 @@ pub async fn handle_connect(
     src: SocketAddr,
     clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
     socket: Arc<UdpSocket>,
+    config: Arc<Config>,
 ) -> bool {
     let (is_connected, current_id) = already_connected(&src.ip(), clients.read().await).await;
     let uuid;
@@ -108,7 +148,7 @@ pub async fn handle_connect(
         let mut map = clients.write().await;
         map.insert(uuid, src);
     }
-    let datagram = &RQ_Connect_ACK_OK::new(uuid, HEART_BEAT_PERIOD).as_bytes();
+    let datagram = &RQ_Connect_ACK_OK::new(uuid, config.heart_beat_period).as_bytes();
     println!("[Server Handler] Connect ack OK sent. Datagram : {:?}", datagram);
     result = socket.send_to(datagram, src).await;
     match result {

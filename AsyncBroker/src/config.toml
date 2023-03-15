@@ -1,0 +1,15 @@
+[server]
+port = "3838"
+
+[period]
+heartbeat_period = 5
+ping_period = 5
+
+[debug]
+debug_level = 'All'
+debug_datagram_handler = true
+debug_ping_sender = true
+debug_data_handler = true
+debug_heartbeat_checker = true
+debug_topic_handler = true
+
