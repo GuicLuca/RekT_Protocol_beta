@@ -231,11 +231,16 @@ async fn handle_data(
     config: Arc<Config>
 ) {
     let data_rq = RQ_Data::from(buffer.as_ref());
+    let read_client_topics = clients_topics.read().await;
 
+    if !read_client_topics.contains_key(&data_rq.topic_id) {
+        println!("[Data Handler] Topic {} doesn't exist", data_rq.topic_id);
+        return;
+    }
 
-    let mut interested_clients = clients_topics.read().await.get(&data_rq.topic_id).unwrap().clone();
-    interested_clients.remove(&client_id);
-    for client in interested_clients {
+    let mut intrested_clients = read_client_topics.get(&data_rq.topic_id).unwrap().clone();
+    intrested_clients.remove(&client_id);
+    for client in intrested_clients {
         let client_addr = *clients.read().await.get(&client).unwrap();
         let data = RQ_Data::new(data_rq.topic_id, data_rq.data.clone());
         let data = data.as_bytes();
@@ -402,12 +407,15 @@ pub async fn handle_disconnect(
      */
 
     // loops trough client_topics topics and remove the client from the topic
-    let read_client_topics = client_topics.read().await;
-    for topic_id in read_client_topics.keys() {
-        let mut write_topic_clients = client_topics.write().await;
-        write_topic_clients.get_mut(topic_id).unwrap().remove(&client_id);
+    let client_topics = &client_topics;
+    let topic_ids: Vec<u64> = {
+        let read_client_topics = client_topics.read().await;
+        read_client_topics.keys().cloned().collect()
+    };
+    let mut write_client_topics = client_topics.write().await;
+    for topic_id in topic_ids {
+        write_client_topics.get_mut(&topic_id).unwrap().remove(&client_id);
     }
-
     clients_ref.write().await.remove(&client_id);
 
     println!("[Server] Disconnect {}", client_id);
