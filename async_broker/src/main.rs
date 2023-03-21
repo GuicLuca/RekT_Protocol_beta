@@ -28,8 +28,8 @@ async fn main() {
     let config: Arc<Config> = Arc::new(Config::new());
     //let port = ps_common::get_cli_input("[Server] Hi there ! Chose the port of for the server :", "Cannot get the port form the cli input.", None, None, true);
     log(Info, Other, format!("Config generation complete : \n{:#?}", config), config.clone());
-
-    log(Info, Other, format!("The ip of the server is {}:{}", local_ip().unwrap(), config.port), config.clone());
+    println!("The ip of the server is {}:{}", local_ip().unwrap(), config.port);
+    //log(Info, Other, format!("The ip of the server is {}:{}", local_ip().unwrap(), config.port), config.clone());
 
     /* ===============================
            Init all server variable
@@ -248,7 +248,6 @@ async fn datagrams_handler(
 
                         // Clone needed variable
                         let receiver_ref = receiver.clone();
-                        let clients_ref = clients.clone();
                         let config_ref = config.clone();
                         let root_ref = root.clone();
                         let clients_topics_ref = clients_topics.clone();
@@ -258,7 +257,7 @@ async fn datagrams_handler(
                                 receiver_ref,
                                 buf,
                                 client_id,
-                                clients_ref,
+                                src,
                                 clients_topics_ref,
                                 root_ref,
                                 config_ref,
@@ -499,13 +498,12 @@ async fn topics_request_handler(
     sender: Arc<UdpSocket>,
     buffer: [u8; 1024],
     client_id: u64,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    client_addr: SocketAddr,
     clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
     root_ref: Arc<RwLock<TopicV2>>,
     config: Arc<Config>,
 ) {
     // 1 - Init local variables
-    let client_addr = *clients.read().await.get(&client_id).unwrap();
     let topic_rq = RQ_TopicRequest::from(buffer.as_ref());
 
     let topic_path = String::from_utf8(topic_rq.payload).unwrap();
