@@ -3,11 +3,13 @@ use std::net::SocketAddr;
 use std::string::String;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use local_ip_address::local_ip;
 use tokio::{join, net::UdpSocket};
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
+
 use crate::ps_config::Config;
 use crate::ps_config::LogLevel::*;
 use crate::ps_datagram_structs::*;
@@ -34,7 +36,7 @@ async fn main() {
        ==============================*/
     // Flag showing if the server is running or not
     #[allow(unused)]
-    let mut b_running;
+        let mut b_running;
 
     // The socket used by the server to exchange datagrams with clients
     let socket = UdpSocket::bind(format!("{}:{}", "0.0.0.0", config.port.parse::<i16>().unwrap())).await.unwrap();
@@ -71,18 +73,20 @@ async fn main() {
     //    Spawning async functions
     // =============================
     b_running = Arc::from(true);
-    let datagram_handler = tokio::spawn(datagrams_handler(
-        socket_ref.clone(),
-        clients_ref.clone(),
-        root_ref.clone(),
-        pings_ref.clone(),
-        clients_ping_ref.clone(),
-        b_running.clone(),
-        client_has_heartbeat_ref.clone(),
-        clients_topics_ref.clone(),
-        config.clone(),
-    ));
-    //let ping_sender = tokio::spawn(ping_sender(socket_ref.clone(), clients_ref.clone(), pings_ref.clone(),b_running.clone()));
+    let config_ref = config.clone();
+    let datagram_handler = tokio::spawn(async move {
+        datagrams_handler(
+            socket_ref.clone(),
+            clients_ref.clone(),
+            root_ref.clone(),
+            pings_ref.clone(),
+            clients_ping_ref.clone(),
+            b_running.clone(),
+            client_has_heartbeat_ref.clone(),
+            clients_topics_ref.clone(),
+            config_ref.clone(),
+        ).await;
+    });
 
     log(Info, Other, format!("Server is running ..."), config.clone());
 
@@ -92,6 +96,7 @@ async fn main() {
     b_running = Arc::from(false);
     log(Info, Other, format!("Server has stopped ... Running status : {}", b_running), config.clone());
 }
+
 
 /**
 This method handle every incoming datagram in the broker
@@ -107,13 +112,13 @@ This method handle every incoming datagram in the broker
  */
 async fn datagrams_handler(
     receiver: Arc<UdpSocket>,
-    clients_ref: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-    root_ref: Arc<RwLock<TopicV2>>,
-    pings_ref: Arc<Mutex<HashMap<u8, u128>>>,
-    clients_ping_ref: Arc<RwLock<HashMap<u64, u128>>>,
+    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    root: Arc<RwLock<TopicV2>>,
+    pings: Arc<Mutex<HashMap<u8, u128>>>,
+    clients_ping: Arc<RwLock<HashMap<u64, u128>>>,
     b_running: Arc<bool>,
-    client_has_heartbeat_ref: Arc<RwLock<HashMap<u64, bool>>>,
-    clients_topics_ref: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+    client_has_heartbeat: Arc<RwLock<HashMap<u64, bool>>>,
+    clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
     config: Arc<Config>,
 ) {
     log(Info, DatagramsHandler, format!("Datagrams Handler spawned"), config.clone());
@@ -130,7 +135,7 @@ async fn datagrams_handler(
                 log(Info, DatagramsHandler, format!("Received {} bytes from {}", n, src), config.clone());
 
                 if (MessageType::from(buf[0]) != MessageType::CONNECT) &&
-                    get_client_id(&src, clients_ref.clone()).await.is_none()
+                    get_client_id(&src, clients.clone()).await.is_none()
                 {
                     // Do not handle the datagram if the source is not auth and is not trying to connect
                     log(Warning, DatagramsHandler, format!("Datagrams dropped from {}. Error : Not connected and trying to {}.", src.ip(), display_message_type(MessageType::from(buf[0]))), config.clone());
@@ -141,71 +146,140 @@ async fn datagrams_handler(
                     MessageType::CONNECT => {
                         // 4.1 - A user is trying to connect to the server
                         log(Info, DatagramsHandler, format!("{} is trying to connect", src.ip()), config.clone());
-                        let already_client = handle_connect(src, clients_ref.clone(), receiver.clone(), config.clone()).await;
-                        let id = get_client_id(&src, clients_ref.clone()).await.unwrap();
+                        let already_client = handle_connect(src, clients.clone(), receiver.clone(), config.clone()).await;
+                        let id = get_client_id(&src, clients.clone()).await.unwrap();
                         if !already_client {
+
+                            // Clone needed variable
+                            let receiver_ref = receiver.clone();
+                            let clients_ref = clients.clone();
+                            let pings_ref = pings.clone();
+                            let clients_ping_ref = clients_ping.clone();
+                            let b_running_ref = b_running.clone();
+                            let config_ref = config.clone();
                             #[allow(unused)]
-                                let sender = tokio::spawn(ping_sender(receiver.clone(), id, clients_ref.clone(), pings_ref.clone(), clients_ping_ref.clone(), b_running.clone(), config.clone()));
+                                let sender = tokio::spawn(async move {
+                                ping_sender(
+                                    receiver_ref,
+                                    id,
+                                    clients_ref,
+                                    pings_ref,
+                                    clients_ping_ref,
+                                    b_running_ref,
+                                    config_ref,
+                                ).await;
+                            });
+
+                            // Clone needed variable
+                            let receiver_ref = receiver.clone();
+                            let clients_ref = clients.clone();
+                            let b_running_ref = b_running.clone();
+                            let config_ref = config.clone();
+                            let client_has_heartbeat_ref = client_has_heartbeat.clone();
+                            let clients_topics_ref = clients_topics.clone();
                             #[allow(unused)]
-                                let heartbeat = tokio::spawn(heartbeat_checker(receiver.clone(), id, clients_ref.clone(), client_has_heartbeat_ref.clone(), b_running.clone(), clients_topics_ref.clone(), config.clone()));
+                                let heartbeat = tokio::spawn(async move {
+                                heartbeat_checker(
+                                    receiver_ref,
+                                    id,
+                                    clients_ref,
+                                    client_has_heartbeat_ref,
+                                    b_running_ref,
+                                    clients_topics_ref,
+                                    config_ref,
+                                ).await;
+                            });
                         }
                     }
                     MessageType::DATA => {
                         // 4.2 - A user is trying to sent data to the server
-                        let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
+                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to sent data", client_id), config.clone());
+
+                        // Clone needed variable
+                        let receiver_ref = receiver.clone();
+                        let clients_ref = clients.clone();
+                        let config_ref = config.clone();
+                        let clients_topics_ref = clients_topics.clone();
                         #[allow(unused)]
-                            let handler = tokio::spawn(handle_data(receiver.clone(), buf, client_id, clients_ref.clone(), clients_topics_ref.clone(), config.clone()));
+                            let handler = tokio::spawn(async move {
+                            handle_data(
+                                receiver_ref,
+                                buf,
+                                client_id,
+                                clients_ref,
+                                clients_topics_ref,
+                                config_ref,
+                            ).await;
+                        });
                     }
                     MessageType::OPEN_STREAM => {
                         // 4.3 - A user is trying to open a new stream
-                        let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
+                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to open a new stream", client_id), config.clone());
                     }
                     MessageType::SHUTDOWN => {
                         // 4.4 - A user is trying to shutdown the connexion with the server
-                        let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
+                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to shutdown the connexion with the server", client_id), config.clone());
-                        handle_disconnect(clients_ref.clone(), client_id, clients_topics_ref.clone(), config.clone()).await;
+                        handle_disconnect(clients.clone(), client_id, clients_topics.clone(), config.clone()).await;
                     }
                     MessageType::HEARTBEAT => {
                         // 4.5 - A user is trying to sent an heartbeat
-                        let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
+                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to sent an heartbeat", client_id), config.clone());
                         // check if client is still connected
-                        if clients_ref.read().await.contains_key(&client_id) {
-                            client_has_heartbeat_ref.write().await.entry(client_id)
+                        if clients.read().await.contains_key(&client_id) {
+                            client_has_heartbeat.write().await.entry(client_id)
                                 .and_modify(|v| *v = true)
                                 .or_insert(true);
                         }
                     }
                     MessageType::OBJECT_REQUEST => {
                         // 4.6 - A user is trying to request an object
-                        let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
+                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to request an object", client_id), config.clone());
                     }
                     MessageType::TOPIC_REQUEST => {
                         // 4.7 - A user is trying to request a new topic
-                        let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
+                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to request a new topic", client_id), config.clone());
+
+
+                        // Clone needed variable
+                        let receiver_ref = receiver.clone();
+                        let clients_ref = clients.clone();
+                        let config_ref = config.clone();
+                        let root_ref = root.clone();
+                        let clients_topics_ref = clients_topics.clone();
                         #[allow(unused)]
-                            let handler = tokio::spawn(topics_request_handler(receiver.clone(), buf, client_id, clients_ref.clone(), clients_topics_ref.clone(), root_ref.clone(), config.clone()));
+                            let handler = tokio::spawn(async move {
+                            topics_request_handler(
+                                receiver_ref,
+                                buf,
+                                client_id,
+                                clients_ref,
+                                clients_topics_ref,
+                                root_ref,
+                                config_ref,
+                            ).await;
+                        });
                     }
                     MessageType::PONG => {
                         // 4.8 - A user is trying to answer a ping request
-                        let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
+                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to answer a ping request", client_id), config.clone());
                         let time = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
                             .as_millis(); // Current time in ms
-                        let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
+                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
 
-                        handle_pong(client_id, buf[1], time, pings_ref.clone(), clients_ping_ref.clone(), clients_ref.clone(), config.clone()).await;
+                        handle_pong(client_id, buf[1], time, pings.clone(), clients_ping.clone(), clients.clone(), config.clone()).await;
                     }
                     MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING => {
                         // 4.9 - invalid datagrams for the server
-                        let client_id = get_client_id(&src, clients_ref.clone()).await.unwrap();
+                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Warning, DatagramsHandler, format!("{} has sent an invalid datagram.", client_id), config.clone());
                     }
                     MessageType::UNKNOWN => {
