@@ -55,7 +55,6 @@ impl Client {
             }
         }
     }
-
     pub fn create_topic_test(&self) -> std::io::Result<usize> {
         let topic_rq = RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/home/topix/xd");
         self.socket.send(&topic_rq.as_bytes())
@@ -122,7 +121,11 @@ impl Client {
                             println!("[Client] Received unknown packet from {}", src.ip())
                         }
                     }
-
+                    //192.168.0.180
+                    for i in 0..100  {
+                        self.socket.send_to(&RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/home/topix/xd/ez/ez/ez/ez/ez/ez/ez/ez/ez").as_bytes(), src);
+                        self.socket.send_to(&RQ_Heartbeat::new().as_bytes(), src);
+                    }
                     //println!("{}", String::from_utf8_lossy(&buf[..n]));
                 }
                 Err(e) => {

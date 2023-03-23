@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types, unused)]
 
+use rand::Fill;
 use crate::ps_config::LogLevel;
 
 /** ==================================
@@ -285,7 +286,7 @@ pub fn get_bytes_from_slice(
     if to < from {
         panic!("from is greater than to");
     }
-    buffer[from..to].to_vec()
+    return buffer[from..to+1].to_vec();
 }
 
 /** ==================================
@@ -587,7 +588,7 @@ impl RQ_TopicRequest {
 
 impl From<&[u8]> for RQ_TopicRequest {
     fn from(buffer: &[u8]) -> Self {
-        let size = Size::new(u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap()));
+        let size = Size::new(u16::from_le_bytes(get_bytes_from_slice(buffer, 1, 2).try_into().expect("Cannot get size from buffer.")));
         let payload_end = 4 + (size.size - 1) as usize;
 
         RQ_TopicRequest {
