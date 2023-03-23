@@ -6,30 +6,30 @@ use tokio::sync::{RwLock};
 use crate::server_lib::custom_string_hash;
 
 #[derive(Debug, Clone)]
-pub struct TopicV2 {
+pub struct Topic {
     pub(crate) id: u64,
-    pub(crate) sub_topics: Vec<Arc<TopicV2>>,
+    pub(crate) sub_topics: Vec<Arc<Topic>>,
     #[allow(unused)]
     pub(crate) name: String,
 }
 
-impl Hash for TopicV2 {
+impl Hash for Topic {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
 }
 
-impl PartialEq for TopicV2 {
+impl PartialEq for Topic {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-impl Eq for TopicV2 {}
+impl Eq for Topic {}
 
-impl TopicV2 {
-    pub fn new(id: u64, name: String) -> TopicV2 {
-        TopicV2 {
+impl Topic {
+    pub fn new(id: u64, name: String) -> Topic {
+        Topic {
             id,
             sub_topics: Vec::new(),
             name: String::from(name),
@@ -37,11 +37,11 @@ impl TopicV2 {
     }
 
     #[allow(unused)]
-    pub fn add_sub_topic(&mut self, sub_topic: TopicV2) {
+    pub fn add_sub_topic(&mut self, sub_topic: Topic) {
         self.sub_topics.push(Arc::from(sub_topic));
     }
 
-    pub async fn create_topics_gpt(path: &str, root: Arc<RwLock<TopicV2>>) -> Result<u64, String> {
+    pub async fn create_topics_gpt(path: &str, root: Arc<RwLock<Topic>>) -> Result<u64, String> {
         let mut last_created_topic_id = { root.read().await.id };
         if path.len() == 0 || path.chars().nth(0).unwrap() != '/' {
             return Err("Invalid Path".to_string());
@@ -76,7 +76,7 @@ impl TopicV2 {
                 if let Some(idx) = existing_topic_idx {
                     Arc::new(RwLock::new(write_topic.sub_topics[idx].as_ref().to_owned()))
                 } else {
-                    let new_topic = TopicV2::new(topic_id, topic_name.to_string());
+                    let new_topic = Topic::new(topic_id, topic_name.to_string());
                     write_topic.sub_topics.push(Arc::from(new_topic));
                     let new_topic_idx = write_topic.sub_topics.len() - 1;
                     Arc::new(RwLock::new(write_topic.sub_topics[new_topic_idx].as_ref().to_owned()))
