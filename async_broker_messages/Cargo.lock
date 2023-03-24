@@ -16,6 +16,7 @@ name = "async_broker_messages"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "bytes",
  "hex",
  "local-ip-address",
  "rand",

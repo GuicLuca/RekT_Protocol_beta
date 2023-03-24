@@ -3,6 +3,7 @@
 // date : 22/03/2023
 
 use tokio::sync::oneshot;
+use bytes::Bytes;
 
 // ===================
 //   Common used type
@@ -18,12 +19,9 @@ type Responder<T> = oneshot::Sender<Result<T>>;
  * to execute something.
  */
 #[derive(Debug)]
-enum ClientActions {
-    HandleRequest {
-        buffer: String,
-    },
-    Set {
+pub enum ClientActions {
+    Get {
         key: String,
-        val: Bytes,
+        resp: Responder<u64>,
     }
 }

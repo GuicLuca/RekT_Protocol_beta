@@ -4,13 +4,16 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::net::UdpSocket;
-use tokio::sync::{Mutex, RwLock, RwLockReadGuard};
+use tokio::sync::{mpsc, Mutex, oneshot, RwLock, RwLockReadGuard};
+use tokio::sync::mpsc::Sender;
+use crate::client::Client;
+use crate::client_lib::ClientActions;
 
 use crate::config::{Config, LogLevel};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::LogSource::*;
-use crate::topic::TopicV2;
+use crate::topic::Topic;
 
 pub enum LogSource {
     DatagramsHandler,
@@ -68,11 +71,11 @@ client id too.
  */
 pub async fn already_connected<'a>(
     ip: &'a IpAddr,
-    clients: RwLockReadGuard<'a, HashMap<u64, SocketAddr>>,
+    clients: RwLockReadGuard<'a, HashMap<SocketAddr, Sender<ClientActions>>>,
 ) -> (bool, u64) {
     for (key, value) in clients.iter() {
-        if ip == &value.ip() {
-            return (true, *key);
+        if ip == &key.ip() {
+            return (true, get_client_id(key, clients.clone()).await.unwrap());
         }
     }
     return (false, 0);
@@ -121,11 +124,20 @@ This methods return the id of the given client
  */
 pub async fn get_client_id(
     src: &SocketAddr,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    clients: HashMap<SocketAddr, Sender<ClientActions>>,
 ) -> Option<u64> {
-    for (key, val) in clients.read().await.iter() {
-        if val == src {
-            return Some(*key);
+    for (key, sender) in clients.iter() {
+        if key == src {
+            // spawn a oneshot chanel to receive the command result
+            let (resp_tx, resp_rx) = oneshot::channel();
+            // create the command and send it
+            let cmd = ClientActions::Get {
+                key: "id".to_string(),
+                resp: resp_tx,
+            };
+            sender.send(cmd);
+            // return the result
+            return Some(resp_rx.await.unwrap().unwrap());
         }
     }
     None
@@ -141,7 +153,7 @@ This methods handle the connexion of a new client to the server.
  */
 pub async fn handle_connect(
     src: SocketAddr,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    clients: Arc<RwLock<HashMap<SocketAddr, Sender<ClientActions>>>>,
     socket: Arc<UdpSocket>,
     config: Arc<Config>,
 ) -> bool {
@@ -155,7 +167,10 @@ pub async fn handle_connect(
         uuid = get_new_id();
         log(Info, DatagramsHandler, format!("{} is now a client, UUID : {}", src.ip(), uuid), config.clone());
         let mut map = clients.write().await;
-        map.insert(uuid, src);
+
+        let (sender, mut receiver) = mpsc::channel::<ClientActions>(32);
+        Client::new(uuid, src, receiver);
+        map.insert(src, sender);
     }
     let datagram = &RQ_Connect_ACK_OK::new(uuid, config.heart_beat_period).as_bytes();
     result = socket.send_to(datagram, src).await;
@@ -170,8 +185,8 @@ pub async fn handle_connect(
     return is_connected;
 }
 
-pub async fn create_topics(path: &str, root: Arc<RwLock<TopicV2>>) -> Result<u64, String> {
-    TopicV2::create_topics_gpt(path, root).await
+pub async fn create_topics(path: &str, root: Arc<RwLock<Topic>>) -> Result<u64, String> {
+    Topic::create_topics_gpt(path, root).await
 }
 
 
