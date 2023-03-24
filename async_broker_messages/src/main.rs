@@ -6,10 +6,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use local_ip_address::local_ip;
 use tokio::{join, net::UdpSocket};
+use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
+use crate::client_lib::ClientActions;
 use crate::config::Config;
 use crate::config::LogLevel::*;
 use crate::datagram::*;
@@ -28,36 +30,31 @@ mod client_lib;
 async fn main() {
     println!("[Server] Hi there !");
     let config: Arc<Config> = Arc::new(Config::new());
-    //let port = ps_common::get_cli_input("[Server] Hi there ! Chose the port of for the server :", "Cannot get the port form the cli input.", None, None, true);
     log(Info, Other, format!("Config generation complete : \n{:#?}", config), config.clone());
     println!("The ip of the server is {}:{}", local_ip().unwrap(), config.port);
-    //log(Info, Other, format!("The ip of the server is {}:{}", local_ip().unwrap(), config.port), config.clone());
 
-    /* ===============================
-           Init all server variable
-       ==============================*/
+    /*===============================
+         Init all server variable
+     ==============================*/
     // Flag showing if the server is running or not
-    #[allow(unused)]
-        let mut b_running;
+    #[allow(unused)] let mut b_running;
 
     // The socket used by the server to exchange datagrams with clients
     let socket = UdpSocket::bind(format!("{}:{}", "0.0.0.0", config.port.parse::<i16>().unwrap())).await.unwrap();
     let socket_ref = Arc::new(socket);
-
-    // Address and port of the server
-    //let address = String::new();
-    //let port: i16 = port.parse::<i16>().unwrap();
 
     // Root topic which can be subscribed by clients
     // Every topics have sub topic to them, you can go through each one like in a tree
     let root = RwLock::new(Topic::new(1, "/".to_string())); // default root topics is "/"
     let root_ref = Arc::new(root);
 
-
     // List of clients represented by their address and their ID
-    let clients: RwLock<HashMap<u64, SocketAddr>> = RwLock::new(HashMap::default()); // <Client ID, address>
+    let clients: RwLock<HashMap<u64, Sender<ClientActions>>> = RwLock::new(HashMap::default()); // <Client ID, Sender> -> the sender is used to sent command through the mpsc channels
     let clients_ref = Arc::new(clients);
 
+    // List of clients address
+    let clients_address: RwLock<HashMap<u64, SocketAddr>> = RwLock::new(HashMap::default()); // <Client ID, address>
+    let clients_address_ref = Arc::new(clients_address);
 
     // List of clients ping
     let clients_ping_ref: Arc<RwLock<HashMap<u64, u128>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Ping in ms>
@@ -80,6 +77,7 @@ async fn main() {
         datagrams_handler(
             socket_ref.clone(),
             clients_ref.clone(),
+            clients_address_ref.clone(),
             root_ref.clone(),
             pings_ref.clone(),
             clients_ping_ref.clone(),
@@ -103,7 +101,7 @@ async fn main() {
 /**
 This method handle every incoming datagram in the broker
 @param receiver Arc<UdpSocket> : An atomic reference of the UDP socket of the server
-@param clients_ref Arc<RwLock<HashMap<u64, SocketAddr>>> : An atomic reference of the clients HashMap. The map is protected by a rwLock to be thread safe
+@param clients_ref Arc<RwLock<HashMap<u64, Sender<ClientActions>>> : An atomic reference of the clients HashMap. The map is protected by a rwLock to be thread safe
 @param root_ref Arc<RwLock<TopicV2>> : An atomic reference of root topics, protected by a rwlock to be thread safe
 @param pings_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of the pings time references, protected by a mutex to be thread safe
 @param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a rwLock to be thread safe
@@ -114,7 +112,8 @@ This method handle every incoming datagram in the broker
  */
 async fn datagrams_handler(
     receiver: Arc<UdpSocket>,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
+    clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
     root: Arc<RwLock<Topic>>,
     pings: Arc<Mutex<HashMap<u8, u128>>>,
     clients_ping: Arc<RwLock<HashMap<u64, u128>>>,
@@ -136,22 +135,28 @@ async fn datagrams_handler(
                 // 4 - if OK match on the first byte (MESSAGE_TYPE)
                 log(Info, DatagramsHandler, format!("Received {} bytes from {}", n, src), config.clone());
 
-                if (MessageType::from(buf[0]) != MessageType::CONNECT) &&
-                    get_client_id(&src, clients.clone()).await.is_none()
+                // Get the client id source of the request
+                let client_id_found = get_client_id(&src, clients_addresses.clone().read().await.to_owned()).await;
+                let mut client_id = 0;
+                // Do not handle the datagram if the source is not auth and is not trying to connect
+                if (MessageType::from(buf[0]) != MessageType::CONNECT) && client_id_found.is_none()
                 {
-                    // Do not handle the datagram if the source is not auth and is not trying to connect
                     log(Warning, DatagramsHandler, format!("Datagrams dropped from {}. Error : Not connected and trying to {}.", src.ip(), display_message_type(MessageType::from(buf[0]))), config.clone());
                     continue;
+                }else if !client_id_found.is_none() {
+                    client_id = client_id_found.unwrap();
                 }
+
 
                 match MessageType::from(buf[0]) {
                     MessageType::CONNECT => {
                         // 4.1 - A user is trying to connect to the server
                         log(Info, DatagramsHandler, format!("{} is trying to connect", src.ip()), config.clone());
-                        let already_client = handle_connect(src, clients.clone(), receiver.clone(), config.clone()).await;
-                        let id = get_client_id(&src, clients.clone()).await.unwrap();
-                        if !already_client {
+                        let already_client = handle_connect(src, clients.clone(), receiver.clone(), clients_addresses.clone(), config.clone()).await;
+                        let client_id = get_client_id(&src, clients_addresses.clone().read().await.to_owned()).await.unwrap();
 
+                        // New client connected spawn a task to do some verification
+                        if !already_client {
                             // Clone needed variable
                             let receiver_ref = receiver.clone();
                             let clients_ref = clients.clone();
@@ -163,7 +168,8 @@ async fn datagrams_handler(
                                 let sender = tokio::spawn(async move {
                                 ping_sender(
                                     receiver_ref,
-                                    id,
+                                    client_id,
+                                    src,
                                     clients_ref,
                                     pings_ref,
                                     clients_ping_ref,
@@ -172,6 +178,7 @@ async fn datagrams_handler(
                                 ).await;
                             });
 
+                            /*// TODO : refactor heartbeat to send request only if last request received is to old
                             // Clone needed variable
                             let receiver_ref = receiver.clone();
                             let clients_ref = clients.clone();
@@ -190,17 +197,16 @@ async fn datagrams_handler(
                                     clients_topics_ref,
                                     config_ref,
                                 ).await;
-                            });
+                            });*/
                         }
                     }
                     MessageType::DATA => {
                         // 4.2 - A user is trying to sent data to the server
-                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to sent data", client_id), config.clone());
 
                         // Clone needed variable
                         let receiver_ref = receiver.clone();
-                        let clients_ref = clients.clone();
+                        let clients_addresses_ref = clients_addresses.clone();
                         let config_ref = config.clone();
                         let clients_topics_ref = clients_topics.clone();
                         #[allow(unused)]
@@ -209,26 +215,23 @@ async fn datagrams_handler(
                                 receiver_ref,
                                 buf,
                                 client_id,
-                                clients_ref,
+                                clients_addresses_ref,
                                 clients_topics_ref,
-                                config_ref,
+                                config_ref
                             ).await;
                         });
                     }
                     MessageType::OPEN_STREAM => {
                         // 4.3 - A user is trying to open a new stream
-                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to open a new stream", client_id), config.clone());
                     }
                     MessageType::SHUTDOWN => {
                         // 4.4 - A user is trying to shutdown the connexion with the server
-                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to shutdown the connexion with the server", client_id), config.clone());
-                        handle_disconnect(clients.clone(), client_id, clients_topics.clone(), config.clone()).await;
+                        handle_disconnect(client_id, clients.clone(), clients_addresses.clone(), clients_topics.clone(), config.clone()).await;
                     }
                     MessageType::HEARTBEAT => {
                         // 4.5 - A user is trying to sent an heartbeat
-                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to sent an heartbeat", client_id), config.clone());
                         // check if client is still connected
                         if clients.read().await.contains_key(&client_id) {
@@ -239,12 +242,10 @@ async fn datagrams_handler(
                     }
                     MessageType::OBJECT_REQUEST => {
                         // 4.6 - A user is trying to request an object
-                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to request an object", client_id), config.clone());
                     }
                     MessageType::TOPIC_REQUEST => {
                         // 4.7 - A user is trying to request a new topic
-                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to request a new topic", client_id), config.clone());
 
 
@@ -268,19 +269,16 @@ async fn datagrams_handler(
                     }
                     MessageType::PONG => {
                         // 4.8 - A user is trying to answer a ping request
-                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Info, DatagramsHandler, format!("{} is trying to answer a ping request", client_id), config.clone());
                         let time = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
                             .as_millis(); // Current time in ms
-                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
 
                         handle_pong(client_id, buf[1], time, pings.clone(), clients_ping.clone(), clients.clone(), config.clone()).await;
                     }
                     MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING => {
                         // 4.9 - invalid datagrams for the server
-                        let client_id = get_client_id(&src, clients.clone()).await.unwrap();
                         log(Warning, DatagramsHandler, format!("{} has sent an invalid datagram.", client_id), config.clone());
                     }
                     MessageType::UNKNOWN => {
@@ -299,7 +297,7 @@ async fn handle_data(
     sender: Arc<UdpSocket>,
     buffer: [u8; 1024],
     client_id: u64,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
     clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
     config: Arc<Config>,
 ) {
@@ -314,7 +312,7 @@ async fn handle_data(
     let mut interested_clients = read_client_topics.get(&data_rq.topic_id).unwrap().clone();
     interested_clients.remove(&client_id);
     for client in interested_clients {
-        let client_addr = *clients.read().await.get(&client).unwrap();
+        let client_addr = *clients_addresses.read().await.get(&client).unwrap();
         let data = RQ_Data::new(data_rq.topic_id, data_rq.data.clone());
         let data = data.as_bytes();
         let result = sender.send_to(&data, client_addr).await.unwrap();
@@ -323,7 +321,7 @@ async fn handle_data(
 }
 
 
-/**
+/** TODO : doc
 This method send ping request to every connected clients
 @param sender Arc<UdpSocket> : An atomic reference of the UDP socket of the server
 @param client_id u64 : The client identifier.
@@ -337,19 +335,18 @@ This method send ping request to every connected clients
 async fn ping_sender(
     sender: Arc<UdpSocket>,
     client_id: u64,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    client_addr: SocketAddr,
+    clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
     pings: Arc<Mutex<HashMap<u8, u128>>>,
     clients_ping_ref: Arc<RwLock<HashMap<u64, u128>>>,
     b_running: Arc<bool>,
     config: Arc<Config>,
 ) {
     log(Info, PingSender, format!("Ping sender spawned for {}", client_id), config.clone());
-    // 1 - get the client address
-    let client_addr = *clients.read().await.get(&client_id).unwrap();
 
-    // 2 - Loop while server is running and client is online
+    // 1 - Loop while server is running and client is online
     while *b_running && is_online(client_id, clients.clone()).await {
-        // 3 - Send a ping request to the client
+        // 2 - Send a ping request to the client
         let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(), client_addr).await;
         match result {
             Ok(bytes) => {
@@ -359,10 +356,10 @@ async fn ping_sender(
                 log(Error, PingSender, format!("Failed to send ping request to {}.\n{}", client_id, error), config.clone());
             }
         }
-        // 4 - wait 10 sec before ping everyone again
+        // 3 - wait 10 sec before ping everyone again
         sleep(Duration::from_secs(config.ping_period as u64)).await;
     }
-    // 5 - End the task
+    // 4 - End the task
     clients_ping_ref.write().await.remove(&client_id);
     log(Info, PingSender, format!("Ping sender destroyed for {}", client_id), config.clone());
 }
@@ -380,7 +377,9 @@ This method check if heartbeat are sent correctly and else close the client sess
 async fn heartbeat_checker(
     sender: Arc<UdpSocket>,
     client_id: u64,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    client_addr: SocketAddr,
+    clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
+    clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
     client_has_heartbeat_ref: Arc<RwLock<HashMap<u64, bool>>>,
     b_running: Arc<bool>,
     client_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
@@ -389,7 +388,6 @@ async fn heartbeat_checker(
     log(Info, HeartbeatChecker, format!("HeartbeatChecker sender spawned for {}", client_id), config.clone());
     // 1 - Init local variables
     let mut missed_heartbeats: u8 = 0; // used to count how many HB are missing
-    let client_addr = *clients.read().await.get(&client_id).unwrap();
 
     // 2 - Loop while server is running and client is online
     while *b_running && is_online(client_id, clients.clone()).await {
@@ -444,7 +442,7 @@ async fn heartbeat_checker(
                 }
 
                 // 8.2 - Remove the client from the main array
-                handle_disconnect(clients.clone(), client_id, client_topics.clone(), config.clone()).await;
+                handle_disconnect(client_id, clients.clone(), clients_addresses.clone(), client_topics.clone(), config.clone()).await;
                 // client's task will end automatically
             }
         } else {
@@ -467,20 +465,26 @@ async fn heartbeat_checker(
     log(Info, HeartbeatChecker, format!("Heartbeat checker destroyed for {}", client_id), config.clone());
 }
 
+
+/** TODO doc
+*
+ */
 pub async fn handle_disconnect(
-    clients_ref: Arc<RwLock<HashMap<u64, SocketAddr>>>,
     client_id: u64,
+    clients_ref: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
+    clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
     client_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
     config: Arc<Config>,
 ) {
-    /* need to clear :
-    clients hashmap => will stop ping_sender task and heartbeat_checker task
-        each task clear his own data
-        ping_sender => clients_ping_ref
-        heartbeat_checker => client_heartbeat_ref
+    /* need to remove from :
+       clients_ref hashmap => will stop ping_sender task and heartbeat_checker task
+        each task clear his own data:
+           - ping_sender => clients_ping_ref
+           - heartbeat_checker => client_heartbeat_ref
+       clients_addresses => this address is now free for a new connection
      */
 
-    // loops trough client_topics topics and remove the client from the topic
+    // 1 - loops trough client_topics topics and remove the client from the topic
     let client_topics = &client_topics;
     let topic_ids: Vec<u64> = {
         let read_client_topics = client_topics.read().await;
@@ -490,8 +494,15 @@ pub async fn handle_disconnect(
     for topic_id in topic_ids {
         write_client_topics.get_mut(&topic_id).unwrap().remove(&client_id);
     }
-    clients_ref.write().await.remove(&client_id);
-    log(Info, Other, format!("Disconnect {}", client_id), config.clone());
+
+    // 2 - Remove the id from the server memory
+    {
+        clients_ref.write().await.remove(&client_id);
+    }
+    {
+        clients_addresses.write().await.remove(&client_id);
+    }
+    log(Info, Other, format!("Disconnection of client {}", client_id), config.clone());
 }
 
 /**

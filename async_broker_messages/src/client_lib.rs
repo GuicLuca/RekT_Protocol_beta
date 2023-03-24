@@ -2,14 +2,14 @@
 // @author : GuicLuca (lucasguichard127@gmail.com)
 // date : 22/03/2023
 
+use std::io::Error;
 use tokio::sync::oneshot;
 use bytes::Bytes;
 
 // ===================
 //   Common used type
 // ===================
-pub type Result<T> = std::result::Result<T,Box<dyn std::error::Error>>;
-type Responder<T> = oneshot::Sender<Result<T>>;
+type Responder<T> = oneshot::Sender<Result<T, Error>>;
 
 
 

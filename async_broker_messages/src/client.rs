@@ -9,6 +9,7 @@ use std::sync::{RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::Receiver;
 use crate::client_lib::ClientActions;
+use crate::config::LogLevel::Error;
 
 pub struct Client {
     // Identifiers
@@ -69,21 +70,22 @@ impl Client {
             // Receive actions
             while let Some(cmd) = self.receiver.recv().await {
                 match cmd {
-
+                    // This command return the value of the requested key
                     ClientActions::Get { key, resp } => {
                         match key.as_str(){
+                            // list of valid key under :
                             "id" =>{
                                 let res = self.id;
                                 // Ignore errors
-                                let _ = resp.send(Result::Ok(res));
+                                let _ = resp.send(Ok(res));
                             }
                             _ => {
-                                let _ = resp.send(Result::Err(String::from(format!("Bad key requested : \"{}\"", key)).into()));
+                                let _ = resp.send(Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Bad key requested : \"{}\"", key))));
                             }
                         }
-
                     }
-                }
+
+                } // end matc
             }
         }
 

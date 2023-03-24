@@ -6,9 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, Mutex, oneshot, RwLock, RwLockReadGuard};
 use tokio::sync::mpsc::Sender;
+
 use crate::client::Client;
 use crate::client_lib::ClientActions;
-
 use crate::config::{Config, LogLevel};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
@@ -71,11 +71,11 @@ client id too.
  */
 pub async fn already_connected<'a>(
     ip: &'a IpAddr,
-    clients: RwLockReadGuard<'a, HashMap<SocketAddr, Sender<ClientActions>>>,
+    clients_addresses: RwLockReadGuard<'a, HashMap<u64,SocketAddr>>,
 ) -> (bool, u64) {
-    for (key, value) in clients.iter() {
-        if ip == &key.ip() {
-            return (true, get_client_id(key, clients.clone()).await.unwrap());
+    for (key, value) in clients_addresses.iter() {
+        if ip == &value.ip() {
+            return (true, *key);
         }
     }
     return (false, 0);
@@ -124,20 +124,11 @@ This methods return the id of the given client
  */
 pub async fn get_client_id(
     src: &SocketAddr,
-    clients: HashMap<SocketAddr, Sender<ClientActions>>,
+    clients_addresses: HashMap<u64, SocketAddr>,
 ) -> Option<u64> {
-    for (key, sender) in clients.iter() {
-        if key == src {
-            // spawn a oneshot chanel to receive the command result
-            let (resp_tx, resp_rx) = oneshot::channel();
-            // create the command and send it
-            let cmd = ClientActions::Get {
-                key: "id".to_string(),
-                resp: resp_tx,
-            };
-            sender.send(cmd);
-            // return the result
-            return Some(resp_rx.await.unwrap().unwrap());
+    for (key, addr) in clients_addresses.iter() {
+        if addr == src {
+            return Some(*key);
         }
     }
     None
@@ -153,24 +144,39 @@ This methods handle the connexion of a new client to the server.
  */
 pub async fn handle_connect(
     src: SocketAddr,
-    clients: Arc<RwLock<HashMap<SocketAddr, Sender<ClientActions>>>>,
+    clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
     socket: Arc<UdpSocket>,
+    clients_addresses: Arc<RwLock<HashMap<u64,SocketAddr>>>,
     config: Arc<Config>,
 ) -> bool {
-    let (is_connected, current_id) = already_connected(&src.ip(), clients.read().await).await;
+    // 1 - check if user is connected
+    let (is_connected, current_id) = already_connected(&src.ip(), clients_addresses.read().await).await;
     let uuid;
     let result;
+
     if is_connected {
+        // 2 - User already connected, return the same data as previous connection
         uuid = current_id;
         log(Info, DatagramsHandler, format!("{} was already a client, UUID : {}", src.ip(), uuid), config.clone());
     } else {
+        //3 - it's a new connection : generate a new id
         uuid = get_new_id();
         log(Info, DatagramsHandler, format!("{} is now a client, UUID : {}", src.ip(), uuid), config.clone());
-        let mut map = clients.write().await;
 
+        // 3.1 - Create a chanel to exchange commands through
         let (sender, mut receiver) = mpsc::channel::<ClientActions>(32);
         Client::new(uuid, src, receiver);
-        map.insert(src, sender);
+
+        // 3.2 - fill server arrays to keep in memory the connection
+        {
+            let mut map = clients.write().await;
+            map.insert(uuid, sender);
+        }
+        {
+            let mut map_addr = clients_addresses.write().await;
+            map_addr.insert(uuid, src);
+        }
+
     }
     let datagram = &RQ_Connect_ACK_OK::new(uuid, config.heart_beat_period).as_bytes();
     result = socket.send_to(datagram, src).await;
@@ -203,6 +209,7 @@ pub async fn get_new_ping_reference(pings: Arc<Mutex<HashMap<u8, u128>>>, config
     return key;
 }
 
+
 /**
 This method check if heartbeat are sent correctly and else close the client session
 @param client_id u64 : The client identifier.
@@ -217,11 +224,11 @@ pub async fn handle_pong(
     current_time: u128,
     pings_ref: Arc<Mutex<HashMap<u8, u128>>>,
     clients_ping: Arc<RwLock<HashMap<u64, u128>>>,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
     config: Arc<Config>,
 ) {
     // 0 - if client are not in the client array, they are offline so abort the treatment
-    if !clients.read().await.contains_key(&client_id) { return; };
+    if !is_online(client_id, clients).await { return; };
 
     // 1 - get the mutable ref of all ping request
     let mut pings_ref_mut = pings_ref.lock().await;
@@ -237,18 +244,32 @@ pub async fn handle_pong(
 }
 
 
+/**
+ * This function return true if the client
+ * is currently online.
+ *
+ * @param client_id u64: The checked id
+ * @param clients Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>: The hashmap of all connected client
+ * @return bool
+ */
 pub async fn is_online(
     client_id: u64,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
 ) -> bool
 {
     let clients_read = clients.read().await;
     return clients_read.contains_key(&client_id);
 }
 
+
 const FNV_PRIME: u64 = 1099511628211;
 const FNV_OFFSET: u64 = 14695981039346656037;
-
+/**
+ * This method hash the passed string
+ *
+ * @param s &str: the string to hash
+ * @return u64: the hash of the string
+ */
 pub fn custom_string_hash(s: &str) -> u64 {
     let mut hash = FNV_OFFSET;
     for b in s.bytes() {
