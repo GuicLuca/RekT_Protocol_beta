@@ -141,7 +141,8 @@ async fn datagrams_handler(
                 // Do not handle the datagram if the source is not auth and is not trying to connect
                 if (MessageType::from(buf[0]) != MessageType::CONNECT) && client_id_found.is_none()
                 {
-                    log(Warning, DatagramsHandler, format!("Datagrams dropped from {}. Error : Not connected and trying to {}.", src.ip(), display_message_type(MessageType::from(buf[0]))), config.clone());
+                    log(Warning, DatagramsHandler, format!("Datagrams dropped from {}. Error : Not connected and sending requests", src.ip()), config.clone()); // optimization against ddos
+                    // log(Warning, DatagramsHandler, format!("Datagrams dropped from {}. Error : Not connected and trying to {}.", src.ip(), display_message_type(MessageType::from(buf[0]))), config.clone());
                     continue;
                 }else if !client_id_found.is_none() {
                     client_id = client_id_found.unwrap();
