@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, Mutex, oneshot, RwLock, RwLockReadGuard};
+use tokio::sync::{mpsc, Mutex, RwLock, RwLockReadGuard};
 use tokio::sync::mpsc::Sender;
 
 use crate::client::Client;
@@ -164,7 +164,7 @@ pub async fn handle_connect(
         log(Info, DatagramsHandler, format!("{} is now a client, UUID : {}", src.ip(), uuid), config.clone());
 
         // 3.1 - Create a chanel to exchange commands through
-        let (sender, mut receiver) = mpsc::channel::<ClientActions>(32);
+        let (sender, receiver) = mpsc::channel::<ClientActions>(32);
         Client::new(uuid, src, receiver);
 
         // 3.2 - fill server arrays to keep in memory the connection

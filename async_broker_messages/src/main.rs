@@ -28,7 +28,7 @@ mod client_lib;
 
 #[tokio::main]
 async fn main() {
-    println!("[Server] Hi there !");
+    println!("[Server] Hi there ! [msg ver]");
     let config: Arc<Config> = Arc::new(Config::new());
     log(Info, Other, format!("Config generation complete : \n{:#?}", config), config.clone());
     println!("The ip of the server is {}:{}", local_ip().unwrap(), config.port);
@@ -178,7 +178,7 @@ async fn datagrams_handler(
                                 ).await;
                             });
 
-                            /*// TODO : refactor heartbeat to send request only if last request received is to old
+                            /* TODO : refactor heartbeat to send request only if last request received is to old
                             // Clone needed variable
                             let receiver_ref = receiver.clone();
                             let clients_ref = clients.clone();

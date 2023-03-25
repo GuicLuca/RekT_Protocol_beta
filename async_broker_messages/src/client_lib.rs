@@ -4,7 +4,6 @@
 
 use std::io::Error;
 use tokio::sync::oneshot;
-use bytes::Bytes;
 
 // ===================
 //   Common used type

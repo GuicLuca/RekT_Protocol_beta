@@ -9,7 +9,6 @@ use std::sync::{RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::Receiver;
 use crate::client_lib::ClientActions;
-use crate::config::LogLevel::Error;
 
 pub struct Client {
     // Identifiers
