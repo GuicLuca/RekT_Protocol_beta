@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::Receiver;
 use crate::client_lib::ClientActions;
 
+#[allow(unused)]
 pub struct Client {
     // Identifiers
     pub id: u64,
@@ -48,6 +49,7 @@ impl Client {
     /**
      * This method save the current time as the last
      */
+    #[allow(unused)]
     pub fn save_request_timestamp(&mut self){
         // Get the writ access to the value
         let mut last_request_mut = self.last_request.write().unwrap();
@@ -63,6 +65,7 @@ impl Client {
      * and which return result or process logic operation on the client
      * during his connection time.
      */
+    #[allow(unused)]
     pub async fn manager(&mut self){
         // while client is alive ...
         loop {

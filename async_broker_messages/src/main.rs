@@ -179,6 +179,7 @@ async fn datagrams_handler(
                             });
 
                             /* TODO : refactor heartbeat to send request only if last request received is to old
+
                             // Clone needed variable
                             let receiver_ref = receiver.clone();
                             let clients_ref = clients.clone();
@@ -374,6 +375,7 @@ This method check if heartbeat are sent correctly and else close the client sess
 
 @return None
  */
+#[allow(unused)]
 async fn heartbeat_checker(
     sender: Arc<UdpSocket>,
     client_id: u64,
