@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 use crate::client_lib::ClientActions;
+use crate::client_lib::ClientActions::{HandlePong, UpdateClientLastRequest};
 use crate::config::Config;
 use crate::config::LogLevel::*;
 use crate::datagram::*;
@@ -56,14 +57,10 @@ async fn main() {
     let clients_address: RwLock<HashMap<u64, SocketAddr>> = RwLock::new(HashMap::default()); // <Client ID, address>
     let clients_address_ref = Arc::new(clients_address);
 
-    // List of clients ping
-    let clients_ping_ref: Arc<RwLock<HashMap<u64, u128>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Ping in ms>
+    // List of time reference for ping requests
     let pings_ref: Arc<Mutex<HashMap<u8, u128>>> = Arc::new(Mutex::new(HashMap::default())); // <Ping ID, reference time in ms>
 
-    // List of client heartbeat_status
-    let client_has_heartbeat_ref: Arc<RwLock<HashMap<u64, bool>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, has_heartbeat>
-
-    // List of client's subscribed topic
+    // List of clients subscribed topic
     let clients_topics_ref: Arc<RwLock<HashMap<u64, HashSet<u64>>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, [TopicsID]>
 
     log(Info, Other, format!("Server variables successfully initialized"), config.clone());
@@ -80,9 +77,7 @@ async fn main() {
             clients_address_ref.clone(),
             root_ref.clone(),
             pings_ref.clone(),
-            clients_ping_ref.clone(),
             b_running.clone(),
-            client_has_heartbeat_ref.clone(),
             clients_topics_ref.clone(),
             config_ref.clone(),
         ).await;
@@ -116,9 +111,7 @@ async fn datagrams_handler(
     clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
     root: Arc<RwLock<Topic>>,
     pings: Arc<Mutex<HashMap<u8, u128>>>,
-    clients_ping: Arc<RwLock<HashMap<u64, u128>>>,
     b_running: Arc<bool>,
-    client_has_heartbeat: Arc<RwLock<HashMap<u64, bool>>>,
     clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
     config: Arc<Config>,
 ) {
@@ -143,8 +136,19 @@ async fn datagrams_handler(
                 {
                     log(Warning, DatagramsHandler, format!("Datagrams dropped from {}. Error : Not connected and trying to {}.", src.ip(), display_message_type(MessageType::from(buf[0]))), config.clone());
                     continue;
-                }else if !client_id_found.is_none() {
+                } else if !client_id_found.is_none() {
+                    // The client is already connected
                     client_id = client_id_found.unwrap();
+
+                    // update his last time he sent a request
+                    let client_sender = {
+                        let map = clients.read().await;
+                        map.get(&client_id).unwrap().clone()
+                    };
+                    let cmd = UpdateClientLastRequest {};
+                    tokio::spawn(async move {
+                        let _ = client_sender.send(cmd).await;
+                    });
                 }
 
 
@@ -161,43 +165,20 @@ async fn datagrams_handler(
                             let receiver_ref = receiver.clone();
                             let clients_ref = clients.clone();
                             let pings_ref = pings.clone();
-                            let clients_ping_ref = clients_ping.clone();
                             let b_running_ref = b_running.clone();
                             let config_ref = config.clone();
-                            #[allow(unused)]
-                                let sender = tokio::spawn(async move {
+                            // Todo : transformer en ping_manager dans le client.
+                            let _ = tokio::spawn(async move {
                                 ping_sender(
                                     receiver_ref,
                                     client_id,
                                     src,
                                     clients_ref,
                                     pings_ref,
-                                    clients_ping_ref,
                                     b_running_ref,
                                     config_ref,
                                 ).await;
                             });
-
-                            /*// TODO : refactor heartbeat to send request only if last request received is to old
-                            // Clone needed variable
-                            let receiver_ref = receiver.clone();
-                            let clients_ref = clients.clone();
-                            let b_running_ref = b_running.clone();
-                            let config_ref = config.clone();
-                            let client_has_heartbeat_ref = client_has_heartbeat.clone();
-                            let clients_topics_ref = clients_topics.clone();
-                            #[allow(unused)]
-                                let heartbeat = tokio::spawn(async move {
-                                heartbeat_checker(
-                                    receiver_ref,
-                                    id,
-                                    clients_ref,
-                                    client_has_heartbeat_ref,
-                                    b_running_ref,
-                                    clients_topics_ref,
-                                    config_ref,
-                                ).await;
-                            });*/
                         }
                     }
                     MessageType::DATA => {
@@ -209,15 +190,16 @@ async fn datagrams_handler(
                         let clients_addresses_ref = clients_addresses.clone();
                         let config_ref = config.clone();
                         let clients_topics_ref = clients_topics.clone();
-                        #[allow(unused)]
-                            let handler = tokio::spawn(async move {
+                        let clients_ref = clients.clone();
+                        let _ = tokio::spawn(async move {
                             handle_data(
                                 receiver_ref,
                                 buf,
                                 client_id,
+                                clients_ref,
                                 clients_addresses_ref,
                                 clients_topics_ref,
-                                config_ref
+                                config_ref,
                             ).await;
                         });
                     }
@@ -231,14 +213,12 @@ async fn datagrams_handler(
                         handle_disconnect(client_id, clients.clone(), clients_addresses.clone(), clients_topics.clone(), config.clone()).await;
                     }
                     MessageType::HEARTBEAT => {
-                        // 4.5 - A user is trying to sent an heartbeat
+                        /*// 4.5 - A user is trying to sent an heartbeat
                         log(Info, DatagramsHandler, format!("{} is trying to sent an heartbeat", client_id), config.clone());
                         // check if client is still connected
                         if clients.read().await.contains_key(&client_id) {
-                            client_has_heartbeat.write().await.entry(client_id)
-                                .and_modify(|v| *v = true)
-                                .or_insert(true);
-                        }
+                            // TODO: voir si c'est ok ou pas de pas check si la dernier rq est un HB ou pas.
+                        }*/
                     }
                     MessageType::OBJECT_REQUEST => {
                         // 4.6 - A user is trying to request an object
@@ -254,13 +234,17 @@ async fn datagrams_handler(
                         let config_ref = config.clone();
                         let root_ref = root.clone();
                         let clients_topics_ref = clients_topics.clone();
-                        #[allow(unused)]
-                            let handler = tokio::spawn(async move {
+                        let client_sender = {
+                            clients.read().await.get(&client_id).unwrap().clone()
+                        };
+
+                        let _ = tokio::spawn(async move {
                             topics_request_handler(
                                 receiver_ref,
                                 buf,
                                 client_id,
                                 src,
+                                client_sender,
                                 clients_topics_ref,
                                 root_ref,
                                 config_ref,
@@ -275,7 +259,19 @@ async fn datagrams_handler(
                             .unwrap()
                             .as_millis(); // Current time in ms
 
-                        handle_pong(client_id, buf[1], time, pings.clone(), clients_ping.clone(), clients.clone(), config.clone()).await;
+                        // If the client is offline, don't compute the request
+                        if !is_online(client_id, clients.clone()).await { continue; };
+
+                        let cmd = HandlePong {
+                            ping_id: buf[1],
+                            current_time: time,
+                            pings_ref: pings.clone(),
+                        };
+                        // send the command :
+                        let clients_ref = clients.clone();
+                        tokio::spawn(async move {
+                            clients_ref.read().await.get(&client_id).unwrap().send(cmd).await.expect(&*format!("Failed to send the handle pong command to the client {}", client_id));
+                        });
                     }
                     MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING => {
                         // 4.9 - invalid datagrams for the server
@@ -297,6 +293,7 @@ async fn handle_data(
     sender: Arc<UdpSocket>,
     buffer: [u8; 1024],
     client_id: u64,
+    clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
     clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
     clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
     config: Arc<Config>,
@@ -312,10 +309,15 @@ async fn handle_data(
     let mut interested_clients = read_client_topics.get(&data_rq.topic_id).unwrap().clone();
     interested_clients.remove(&client_id);
     for client in interested_clients {
+        let client_sender = {
+            let map = clients.read().await;
+            map.get(&client).unwrap().clone()
+        };
         let client_addr = *clients_addresses.read().await.get(&client).unwrap();
         let data = RQ_Data::new(data_rq.topic_id, data_rq.data.clone());
         let data = data.as_bytes();
         let result = sender.send_to(&data, client_addr).await.unwrap();
+        save_server_last_request_sent(client_sender.clone(), client_id).await;
         log(Info, DataHandler, format!("Sent {} bytes to {}", result, client_addr), config.clone());
     }
 }
@@ -338,16 +340,21 @@ async fn ping_sender(
     client_addr: SocketAddr,
     clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
     pings: Arc<Mutex<HashMap<u8, u128>>>,
-    clients_ping_ref: Arc<RwLock<HashMap<u64, u128>>>,
     b_running: Arc<bool>,
     config: Arc<Config>,
 ) {
     log(Info, PingSender, format!("Ping sender spawned for {}", client_id), config.clone());
+    let client_sender = {
+        let map = clients.read().await;
+        map.get(&client_id).unwrap().clone()
+    };
+
 
     // 1 - Loop while server is running and client is online
     while *b_running && is_online(client_id, clients.clone()).await {
         // 2 - Send a ping request to the client
         let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(), client_addr).await;
+        save_server_last_request_sent(client_sender.clone(), client_id).await;
         match result {
             Ok(bytes) => {
                 log(Info, PingSender, format!("Send {} bytes to {}", bytes, client_id), config.clone());
@@ -360,7 +367,6 @@ async fn ping_sender(
         sleep(Duration::from_secs(config.ping_period as u64)).await;
     }
     // 4 - End the task
-    clients_ping_ref.write().await.remove(&client_id);
     log(Info, PingSender, format!("Ping sender destroyed for {}", client_id), config.clone());
 }
 
@@ -388,6 +394,9 @@ async fn heartbeat_checker(
     log(Info, HeartbeatChecker, format!("HeartbeatChecker sender spawned for {}", client_id), config.clone());
     // 1 - Init local variables
     let mut missed_heartbeats: u8 = 0; // used to count how many HB are missing
+    let client_sender = {
+        clients.read().await.get(&client_id).unwrap().clone()
+    };
 
     // 2 - Loop while server is running and client is online
     while *b_running && is_online(client_id, clients.clone()).await {
@@ -420,6 +429,7 @@ async fn heartbeat_checker(
             if missed_heartbeats == 2 {
                 // 7 - send an heartbeat request
                 let result = sender.send_to(&RQ_Heartbeat_Request::new().as_bytes(), client_addr).await;
+                save_server_last_request_sent(client_sender.clone(), client_id).await;
                 match result {
                     Ok(bytes) => {
                         log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, client_id), config.clone());
@@ -432,6 +442,7 @@ async fn heartbeat_checker(
                 // 8 - No Heartbeat for 4 period = end the client connection.
                 // 8.1 - Send shutdown request
                 let result = sender.send_to(&RQ_Shutdown::new(EndConnexionReason::SHUTDOWN).as_bytes(), client_addr).await;
+                save_server_last_request_sent(client_sender.clone(), client_id).await;
                 match result {
                     Ok(bytes) => {
                         log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, client_id), config.clone());
@@ -449,6 +460,7 @@ async fn heartbeat_checker(
             // 7bis - reset flags variable
             missed_heartbeats = 0;
             let result = sender.send_to(&RQ_Heartbeat::new().as_bytes(), client_addr).await;
+            save_server_last_request_sent(client_sender.clone(), client_id).await;
             match result {
                 Ok(_) => {
                     log(Info, HeartbeatChecker, format!("Respond to client bytes (HeartBeat) to {}", client_id), config.clone());
@@ -477,11 +489,9 @@ pub async fn handle_disconnect(
     config: Arc<Config>,
 ) {
     /* need to remove from :
-       clients_ref hashmap => will stop ping_sender task and heartbeat_checker task
-        each task clear his own data:
-           - ping_sender => clients_ping_ref
-           - heartbeat_checker => client_heartbeat_ref
-       clients_addresses => this address is now free for a new connection
+       1 - client_topic : remove the ic from every subscribed
+       2 - clients_ref hashmap => will stop ping_sender task and heartbeat_checker task
+       3 - clients_addresses => this address is now free for a new connection
      */
 
     // 1 - loops trough client_topics topics and remove the client from the topic
@@ -495,7 +505,7 @@ pub async fn handle_disconnect(
         write_client_topics.get_mut(&topic_id).unwrap().remove(&client_id);
     }
 
-    // 2 - Remove the id from the server memory
+    // 2&3 - Remove the id from the server memory
     {
         clients_ref.write().await.remove(&client_id);
     }
@@ -512,6 +522,7 @@ async fn topics_request_handler(
     buffer: [u8; 1024],
     client_id: u64,
     client_addr: SocketAddr,
+    client_sender: Sender<ClientActions>,
     clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
     root_ref: Arc<RwLock<Topic>>,
     config: Arc<Config>,
@@ -539,8 +550,12 @@ async fn topics_request_handler(
                             tmp
                         });
                     result = sender.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_SUB).as_bytes(), client_addr).await;
+                    save_server_last_request_sent(client_sender, client_id).await;
                 }
-                Err(_) => result = sender.send_to(&RQ_TopicRequest_NACK::new(TopicsResponse::FAILURE_SUB, "Subscribing to {} failed :(".to_string()).as_bytes(), client_addr).await,
+                Err(_) => {
+                    result = sender.send_to(&RQ_TopicRequest_NACK::new(TopicsResponse::FAILURE_SUB, "Subscribing to {} failed :(".to_string()).as_bytes(), client_addr).await;
+                    save_server_last_request_sent(client_sender, client_id).await;
+                }
             }
         }
         TopicsAction::UNSUBSCRIBE => {
@@ -549,6 +564,7 @@ async fn topics_request_handler(
             clients_topics.write().await.entry(topic_id).and_modify(|vec| { vec.retain(|e| *e != client_id) });
 
             result = sender.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_USUB).as_bytes(), client_addr).await;
+            save_server_last_request_sent(client_sender, client_id).await;
         }
         TopicsAction::UNKNOWN => {
             result = Ok(0);

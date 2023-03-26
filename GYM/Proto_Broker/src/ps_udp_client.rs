@@ -122,10 +122,10 @@ impl Client {
                         }
                     }
                     //192.168.0.180
-                    for i in 0..100  {
+                   /* for i in 0..100  {
                         self.socket.send_to(&RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/home/topix/xd/ez/ez/ez/ez/ez/ez/ez/ez/ez").as_bytes(), src);
                         self.socket.send_to(&RQ_Heartbeat::new().as_bytes(), src);
-                    }
+                    }*/
                     //println!("{}", String::from_utf8_lossy(&buf[..n]));
                 }
                 Err(e) => {

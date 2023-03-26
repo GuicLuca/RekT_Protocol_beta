@@ -32,6 +32,7 @@ struct ConfigTomlDebug {
     debug_data_handler: Option<bool>,
     debug_heartbeat_checker: Option<bool>,
     debug_topic_handler: Option<bool>,
+    debug_client_manager: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -52,6 +53,7 @@ pub struct Config {
     pub debug_data_handler: bool,
     pub debug_heartbeat_checker: bool,
     pub debug_topic_handler: bool,
+    pub debug_client_manager:bool,
 }
 
 impl Config {
@@ -131,7 +133,8 @@ impl Config {
             debug_ping_sender,
             debug_data_handler,
             debug_heartbeat_checker,
-            debug_topic_handler): (LogLevel, bool, bool, bool, bool, bool) = match config_toml.debug {
+            debug_topic_handler,
+            debug_client_manager): (LogLevel, bool, bool, bool, bool, bool, bool) = match config_toml.debug {
             Some(debug) => {
                 let d_level: LogLevel = debug.debug_level.unwrap_or_else(|| {
                     println!("Missing field debug_level in table debug.");
@@ -157,12 +160,16 @@ impl Config {
                     println!("Missing field debug_topic_handler in table debug.");
                     true // Default value if none found
                 });
+                let d_manager = debug.debug_client_manager.unwrap_or_else(|| {
+                    println!("Missing field debug_client_manager in table debug.");
+                    true // Default value if none found
+                });
 
-                (d_level, d_datagram, d_ping, d_data, d_heart, d_topic)
+                (d_level, d_datagram, d_ping, d_data, d_heart, d_topic, d_manager)
             }
             None => {
                 println!("Missing table debug.");
-                (LogLevel::All, true, true, true, true, true) // Default value if none found
+                (LogLevel::All, true, true, true, true, true, true) // Default value if none found
             }
         };
 
@@ -177,6 +184,7 @@ impl Config {
             debug_data_handler,
             debug_heartbeat_checker,
             debug_topic_handler,
+            debug_client_manager,
         }
     }
 }

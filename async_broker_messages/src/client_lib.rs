@@ -2,15 +2,16 @@
 // @author : GuicLuca (lucasguichard127@gmail.com)
 // date : 22/03/2023
 
+use std::collections::HashMap;
 use std::io::Error;
-use tokio::sync::oneshot;
-use bytes::Bytes;
+use std::sync::{Arc};
+
+use tokio::sync::{Mutex, oneshot};
 
 // ===================
 //   Common used type
 // ===================
 type Responder<T> = oneshot::Sender<Result<T, Error>>;
-
 
 
 /**
@@ -23,5 +24,16 @@ pub enum ClientActions {
     Get {
         key: String,
         resp: Responder<u64>,
-    }
+    },
+    UpdateServerLastRequest{
+        // no parameter.
+    },
+    UpdateClientLastRequest{
+        // no parameter.
+    },
+    HandlePong {
+        ping_id: u8, // The ping request that is answered
+        current_time: u128, // Server time when the request has been received
+        pings_ref: Arc<Mutex<HashMap<u8, u128>>>, // contain all ping request sent by the server
+    },
 }

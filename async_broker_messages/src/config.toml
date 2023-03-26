@@ -12,4 +12,5 @@ debug_ping_sender = true
 debug_data_handler = true
 debug_heartbeat_checker = true
 debug_topic_handler = true
+debug_client_manager = true
 

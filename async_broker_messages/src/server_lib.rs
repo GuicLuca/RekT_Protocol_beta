@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::ptr::null;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, Mutex, oneshot, RwLock, RwLockReadGuard};
+use tokio::sync::{mpsc, Mutex, RwLock, RwLockReadGuard};
 use tokio::sync::mpsc::Sender;
 
 use crate::client::Client;
 use crate::client_lib::ClientActions;
+use crate::client_lib::ClientActions::UpdateServerLastRequest;
 use crate::config::{Config, LogLevel};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
@@ -21,6 +23,7 @@ pub enum LogSource {
     DataHandler,
     HeartbeatChecker,
     TopicHandler,
+    ClientManager,
     Other,
 }
 
@@ -56,6 +59,10 @@ pub fn log(
         }
         LogSource::Other => {
             println!("[Server] {}", message);
+        }
+        ClientManager => {
+            if !config.debug_topic_handler { return; }
+            println!("[Server - ClientManger] {}: {}", display_loglevel(log_level), message);
         }
     }
 }
@@ -164,8 +171,11 @@ pub async fn handle_connect(
         log(Info, DatagramsHandler, format!("{} is now a client, UUID : {}", src.ip(), uuid), config.clone());
 
         // 3.1 - Create a chanel to exchange commands through
-        let (sender, mut receiver) = mpsc::channel::<ClientActions>(32);
-        Client::new(uuid, src, receiver);
+        let (sender, receiver) = mpsc::channel::<ClientActions>(32);
+        let mut new_client = Client::new(uuid, src, receiver);
+        tokio::spawn(async move {
+            new_client.manager().await;
+        });
 
         // 3.2 - fill server arrays to keep in memory the connection
         {
@@ -178,8 +188,15 @@ pub async fn handle_connect(
         }
 
     }
+
+    let sender = {
+        let map = clients.read().await;
+        map.get(&uuid).unwrap().clone()
+    };
+
     let datagram = &RQ_Connect_ACK_OK::new(uuid, config.heart_beat_period).as_bytes();
     result = socket.send_to(datagram, src).await;
+    save_server_last_request_sent(sender.to_owned(), uuid).await;
     match result {
         Ok(bytes) => {
             log(Info, DatagramsHandler, format!("Send {} bytes (RQ_Connect_ACK_OK) to {}", bytes, src.ip()), config.clone());
@@ -189,6 +206,17 @@ pub async fn handle_connect(
         }
     }
     return is_connected;
+}
+
+
+pub async fn save_server_last_request_sent(
+    sender: Sender<ClientActions>,
+    client_id: u64,
+){
+    let cmd = UpdateServerLastRequest {};
+    tokio::spawn(async move {
+        sender.send(cmd).await.expect(&*format!("Failed to send the UpdateServerLastRequest command to the client {}", client_id));
+    });
 }
 
 pub async fn create_topics(path: &str, root: Arc<RwLock<Topic>>) -> Result<u64, String> {
@@ -207,40 +235,6 @@ pub async fn get_new_ping_reference(pings: Arc<Mutex<HashMap<u8, u128>>>, config
     pings.lock().await.insert(key, time);
     log(Info, PingSender, format!("New ping reference created. Id : {}", key), config.clone());
     return key;
-}
-
-
-/**
-This method check if heartbeat are sent correctly and else close the client session
-@param client_id u64 : The client identifier.
-TODO : completer la doc
-@param clients Arc<RwLock<HashMap<u64, SocketAddr>>> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
-
-@return None
- */
-pub async fn handle_pong(
-    client_id: u64,
-    ping_id: u8,
-    current_time: u128,
-    pings_ref: Arc<Mutex<HashMap<u8, u128>>>,
-    clients_ping: Arc<RwLock<HashMap<u64, u128>>>,
-    clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
-    config: Arc<Config>,
-) {
-    // 0 - if client are not in the client array, they are offline so abort the treatment
-    if !is_online(client_id, clients).await { return; };
-
-    // 1 - get the mutable ref of all ping request
-    let mut pings_ref_mut = pings_ref.lock().await;
-    // 2 - compute the round trip
-    let round_trip = (current_time - pings_ref_mut.get(&ping_id).unwrap()) / 2;
-    // 3 - free the ping_id
-    pings_ref_mut.remove(&ping_id);
-    // 4 - set the ping for the client_id
-    clients_ping.write().await.entry(client_id)
-        .and_modify(|v| *v = round_trip)
-        .or_insert(round_trip);
-    log(Info, PingSender, format!("There is {}ms of ping between {} and the server", round_trip, client_id), config.clone());
 }
 
 
