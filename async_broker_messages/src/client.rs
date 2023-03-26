@@ -3,22 +3,25 @@
 // @author : GuicLuca (lucasguichard127@gmail.com)
 // date : 22/03/2023
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use bytes::Bytes;
 
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::sleep;
 
-use crate::client_lib::ClientActions;
+use crate::client_lib::{client_has_sent_life_sign, ClientActions};
+use crate::client_lib::ClientActions::HandleDisconnect;
 use crate::config::Config;
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::*;
 use crate::server_lib::LogSource::*;
 
+#[derive(Debug)]
 pub struct Client {
     // Identifiers
     pub id: u64,
@@ -64,6 +67,9 @@ impl Client {
      */
     pub fn save_client_request_timestamp(&mut self) {
         // Get the writ access to the value
+        let config = Arc::new(Config::new());
+        log(Info, ClientManager, format!("Last client request time updated for client {}", self.id), config.clone());
+
         let mut last_request_mut = self.last_request_from_client.write().unwrap();
         // Update it at now
         *last_request_mut = SystemTime::now()
@@ -77,6 +83,8 @@ impl Client {
      */
     pub fn save_server_request_timestamp(&mut self) {
         // Get the writ access to the value
+        let config = Arc::new(Config::new());
+        log(Info, ClientManager, format!("Last server request time updated for client {}", self.id), config.clone());
         let mut last_request_mut = self.last_request_from_server.write().unwrap();
         // Update it at now
         *last_request_mut = SystemTime::now()
@@ -108,6 +116,11 @@ impl Client {
                             "id" => {
                                 let res = self.id;
                                 // Ignore errors
+                                let _ = resp.send(Ok(res as u128));
+                            },
+                            "last_request_from_client" => {
+                                let res = *self.last_request_from_client.read().unwrap();
+                                // Ignore errors
                                 let _ = resp.send(Ok(res));
                             }
                             _ => {
@@ -133,111 +146,164 @@ impl Client {
                     ClientActions::UpdateServerLastRequest { .. } => {
                         self.save_server_request_timestamp();
                     }
+
                     ClientActions::UpdateClientLastRequest { .. } => {
                         self.save_client_request_timestamp();
+                    }
+
+                    // This command clear client data and stop client's task
+                    ClientActions::HandleDisconnect {
+                        client_topics,
+                        clients_ref,
+                        clients_addresses,
+                        clients_structs
+                    } => {
+                        let client_id = self.id.clone();
+                        let config_ref = config.clone();
+                        tokio::spawn(async move {
+                            /* need to remove from :
+                                1 - client_topic : remove the ic from every subscribed
+                                2 - clients_ref hashmap => will stop ping_sender task and heartbeat_checker task
+                                3 - clients_addresses => this address is now free for a new connection
+                            */
+                            // 1 - loops trough client_topics topics and remove the client from the topic
+                            let client_topics = &client_topics;
+                            let topic_ids: Vec<u64> = {
+                                let read_client_topics = client_topics.read().await;
+                                read_client_topics.keys().cloned().collect()
+                            };
+                            let mut write_client_topics = client_topics.write().await;
+                            for topic_id in topic_ids {
+                                write_client_topics.get_mut(&topic_id).unwrap().remove(&client_id);
+                            }
+
+                            // 2&3 - Remove the id from the server memory
+                            {
+                                clients_ref.write().await.remove(&client_id);
+                            }
+                            {
+                                clients_addresses.write().await.remove(&client_id);
+                            }
+                            {
+                                clients_structs.write().await.remove(&client_id);
+                            }
+                            log(Info, Other, format!("Disconnection of client {}", client_id), config_ref);
+                        });
+                    },
+
+                    // This command start every client managers
+                    ClientActions::StartManagers {
+                        clients,
+                        client_topics,
+                        clients_addresses,
+                        clients_structs,
+                        b_running,
+                        server_sender} => {
+                        // heartbeat_manager :
+                        let id = self.id;
+                        let socket = self.socket;
+                        tokio::spawn(async move {
+                            heartbeat_manager(id, socket, clients, client_topics, clients_addresses, clients_structs, b_running, server_sender).await;
+                        });
+                        // ping_manager
+
                     }
                 } // end match
             }
         }
     }
+}
 
-    /**
-     * This function check last request time of the client and the server and sent heartbeat
-     * if the time is over a limit (see config.toml).
-     * If no life signal get during 4 heartbeat period : the server disconnect the client.
-     */
-    pub async fn heartbeat_manager(
-        &mut self,
-        clients: Arc<tokio::sync::RwLock<HashMap<u64, Sender<ClientActions>>>>,
-        b_running: Arc<bool>,
-        server_sender: Arc<UdpSocket>,
-    ) {
-        let config = Arc::new(Config::new());
+/**
+ * This function check last request time of the client and the server and sent heartbeat
+ * if the time is over a limit (see config.toml).
+ * If no life signal get during 4 heartbeat period : the server disconnect the client.
+ */
+pub async fn heartbeat_manager(
+    id: u64,
+    socket: SocketAddr,
+    clients: Arc<tokio::sync::RwLock<HashMap<u64, Sender<ClientActions>>>>,
+    client_topics: Arc<tokio::sync::RwLock<HashMap<u64, HashSet<u64>>>>,
+    clients_addresses: Arc<tokio::sync::RwLock<HashMap<u64, SocketAddr>>>,
+    clients_structs: Arc<tokio::sync::RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>>,
+    b_running: Arc<bool>,
+    server_sender: Arc<UdpSocket>,
+) {
+    let config = Arc::new(Config::new());
 
-        log(Info, HeartbeatChecker, format!("HeartbeatChecker sender spawned for {}", self.id), config.clone());
-        // 1 - Init local variables
-        let mut missed_heartbeats: u8 = 0; // used to count how many HB are missing
-        let client_sender = {
-            clients.read().await.get(&self.id).unwrap().clone()
-        };
+    log(Info, HeartbeatChecker, format!("HeartbeatChecker sender spawned for {}", id), config.clone());
+    // 1 - Init local variables
+    let mut missed_heartbeats: u8 = 0; // used to count how many HB are missing
+    let client_sender = {
+        clients.read().await.get(&id).unwrap().clone()
+    };
 
-        // 2 - Loop while server is running and client is online
-        while *b_running && is_online(self.id, clients.clone()).await {
-            // 3 - waite for the heartbeat period
-            sleep(Duration::from_secs(config.heart_beat_period as u64)).await;
+    // 2 - Loop while server is running and client is online
+    while *b_running && is_online(id, clients.clone()).await {
+        // 3 - waite for the heartbeat period
+        sleep(Duration::from_secs(config.heart_beat_period as u64)).await;
 
-            // Do the following in a special code space to lock the "has_sent_heartbeat" value the same before reseting it.
-            // It prevent overriding a new incoming Heartbeat request.
-            let has_sent_heartbeat = {
-                let mut write_client_hshb = client_has_heartbeat_ref.write().await;
-                // 4 - get the heartbeat_status
-                let has_sent_heartbeat = match write_client_hshb.get(&self.id) {
-                    Some(bool_value) => *bool_value,
-                    None => false, // return false if self.id is not present in the map
-                };
 
-                // 5 - reset the value
-                write_client_hshb.entry(self.id)
-                    .and_modify(|v| *v = false)
-                    .or_insert(false);
-
-                has_sent_heartbeat
-            };
-
-            // 6 - check if client has sent heartbeat
-            if !has_sent_heartbeat {
-                // increase the missing packet
-                missed_heartbeats += 1;
-                log(Info, HeartbeatChecker, format!("{} hasn't sent heartbeat {} times", self.id, missed_heartbeats), config.clone());
-                if missed_heartbeats == 2 {
-                    // 7 - send an heartbeat request
-                    let result = server_sender.send_to(&RQ_Heartbeat_Request::new().as_bytes(), self.socket).await;
-                    save_server_last_request_sent(client_sender.clone(), self.id).await;
-                    match result {
-                        Ok(bytes) => {
-                            log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, self.id), config.clone());
-                        }
-                        Err(error) => {
-                            log(Error, HeartbeatChecker, format!("Failed to send RQ_HeartBeat_Request to {}. \nError: {}", self.id, error), config.clone());
-                        }
-                    }
-                } else if missed_heartbeats == 4 {
-                    // 8 - No Heartbeat for 4 period = end the client connection.
-                    // 8.1 - Send shutdown request
-                    let result = server_sender.send_to(&RQ_Shutdown::new(EndConnexionReason::SHUTDOWN).as_bytes(), self.socket).await;
-                    save_server_last_request_sent(client_sender.clone(), self.id).await;
-                    match result {
-                        Ok(bytes) => {
-                            log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, self.id), config.clone());
-                        }
-                        Err(error) => {
-                            log(Error, HeartbeatChecker, format!("Failed to send RQ_Shutdown to {}. \nError: {}", self.id, error), config.clone());
-                        }
-                    }
-
-                    // 8.2 - Remove the client from the main array
-                    // TODO : transform disconnect into a command and the refractor the heartbeat manage to compute time with logic
-                    handle_disconnect(self.id, clients.clone(), clients_addresses.clone(), client_topics.clone(), config.clone()).await;
-                    // client's task will end automatically
-                }
-            } else {
-                // 7bis - reset flags variable
-                missed_heartbeats = 0;
-                let result = server_sender.send_to(&RQ_Heartbeat::new().as_bytes(), self.socket).await;
-                save_server_last_request_sent(client_sender.clone(), self.id).await;
+        // 6 - check if client has sent heartbeat
+        if !client_has_sent_life_sign(client_sender.clone(), config.heart_beat_period as u128).await {
+            // increase the missing packet
+            missed_heartbeats += 1;
+            log(Info, HeartbeatChecker, format!("{} hasn't sent life signs {} times", id, missed_heartbeats), config.clone());
+            if missed_heartbeats == 2 {
+                // 7 - send an heartbeat request
+                let result = server_sender.send_to(&RQ_Heartbeat_Request::new().as_bytes(), socket).await;
+                save_server_last_request_sent(client_sender.clone(), id).await;
                 match result {
-                    Ok(_) => {
-                        log(Info, HeartbeatChecker, format!("Respond to client bytes (HeartBeat) to {}", self.id), config.clone());
+                    Ok(bytes) => {
+                        log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, id), config.clone());
                     }
                     Err(error) => {
-                        log(Error, HeartbeatChecker, format!("Failed to send RQ_HeartBeat to {}.\nError: {}", self.id, error), config.clone());
+                        log(Error, HeartbeatChecker, format!("Failed to send RQ_HeartBeat_Request to {}. \nError: {}", id, error), config.clone());
                     }
+                }
+            } else if missed_heartbeats == 4 {
+                // 8 - No Heartbeat for 4 period = end the client connection.
+                // 8.1 - Send shutdown request
+                let result = server_sender.send_to(&RQ_Shutdown::new(EndConnexionReason::SHUTDOWN).as_bytes(), socket).await;
+                save_server_last_request_sent(client_sender.clone(), id).await;
+                match result {
+                    Ok(bytes) => {
+                        log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, id), config.clone());
+                    }
+                    Err(error) => {
+                        log(Error, HeartbeatChecker, format!("Failed to send RQ_Shutdown to {}. \nError: {}", id, error), config.clone());
+                    }
+                }
+
+                // 8.2 - Remove the client from the main array
+                // client's task will end automatically
+                let cmd = HandleDisconnect {
+                    client_topics: client_topics.clone(),
+                    clients_ref: clients.clone(),
+                    clients_addresses: clients_addresses.clone(),
+                    clients_structs: clients_structs.clone(),
+                };
+                let sender_ref = client_sender.clone();
+                tokio::spawn(async move {
+                    let _ = sender_ref.send(cmd).await;
+                });
+            }
+        } else {
+            // 7bis - reset flags variable
+            missed_heartbeats = 0;
+            let result = server_sender.send_to(&RQ_Heartbeat::new().as_bytes(), socket).await;
+            save_server_last_request_sent(client_sender.clone(), id).await;
+            match result {
+                Ok(_) => {
+                    log(Info, HeartbeatChecker, format!("Respond to client bytes (HeartBeat) to {}", id), config.clone());
+                }
+                Err(error) => {
+                    log(Error, HeartbeatChecker, format!("Failed to send RQ_HeartBeat to {}.\nError: {}", id, error), config.clone());
                 }
             }
         }
-
-        // 9 - End the task
-        client_has_heartbeat_ref.write().await.remove(&self.id);
-        log(Info, HeartbeatChecker, format!("Heartbeat checker destroyed for {}", self.id), config.clone());
     }
+
+    // 9 - End the task
+    log(Info, HeartbeatChecker, format!("Heartbeat checker destroyed for {}", id), config.clone());
 }

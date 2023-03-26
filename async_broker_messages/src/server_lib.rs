@@ -154,8 +154,9 @@ pub async fn handle_connect(
     clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
     socket: Arc<UdpSocket>,
     clients_addresses: Arc<RwLock<HashMap<u64,SocketAddr>>>,
+    clients_structs: Arc<RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>>,
     config: Arc<Config>,
-) -> bool {
+) -> (bool, Sender<ClientActions>) {
     // 1 - check if user is connected
     let (is_connected, current_id) = already_connected(&src.ip(), clients_addresses.read().await).await;
     let uuid;
@@ -172,15 +173,21 @@ pub async fn handle_connect(
 
         // 3.1 - Create a chanel to exchange commands through
         let (sender, receiver) = mpsc::channel::<ClientActions>(32);
-        let mut new_client = Client::new(uuid, src, receiver);
-        tokio::spawn(async move {
-            new_client.manager().await;
-        });
+        let new_client = Client::new(uuid, src, receiver);
+        let new_client_arc: Arc<Mutex<Client>> = Arc::new(tokio::sync::Mutex::new(new_client)); // clone new_client and wrap in Arc and Mutex
 
         // 3.2 - fill server arrays to keep in memory the connection
         {
             let mut map = clients.write().await;
             map.insert(uuid, sender);
+        }
+        {
+            let manager_ref = new_client_arc.clone();
+            tokio::spawn(async move{
+               manager_ref.lock().await.manager().await;
+            });
+            let mut map = clients_structs.write().await;
+            map.insert(uuid, new_client_arc);
         }
         {
             let mut map_addr = clients_addresses.write().await;
@@ -205,7 +212,7 @@ pub async fn handle_connect(
             log(Error, DatagramsHandler, format!("Failed to send Connect ACK to {}.\nError: {}", src.ip(), error), config.clone());
         }
     }
-    return is_connected;
+    return (is_connected, sender);
 }
 
 

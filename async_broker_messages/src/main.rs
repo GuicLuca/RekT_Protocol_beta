@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
+use std::ptr::null;
 use std::string::String;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -10,9 +11,10 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
+use crate::client::Client;
 
 use crate::client_lib::ClientActions;
-use crate::client_lib::ClientActions::{HandlePong, UpdateClientLastRequest};
+use crate::client_lib::ClientActions::{HandleDisconnect, HandlePong, StartManagers, UpdateClientLastRequest};
 use crate::config::Config;
 use crate::config::LogLevel::*;
 use crate::datagram::*;
@@ -52,6 +54,7 @@ async fn main() {
     // List of clients represented by their address and their ID
     let clients: RwLock<HashMap<u64, Sender<ClientActions>>> = RwLock::new(HashMap::default()); // <Client ID, Sender> -> the sender is used to sent command through the mpsc channels
     let clients_ref = Arc::new(clients);
+    let clients_structs: Arc<RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>> = Arc::new(RwLock::new(HashMap::default())); // used only to keep struct alive
 
     // List of clients address
     let clients_address: RwLock<HashMap<u64, SocketAddr>> = RwLock::new(HashMap::default()); // <Client ID, address>
@@ -79,6 +82,7 @@ async fn main() {
             pings_ref.clone(),
             b_running.clone(),
             clients_topics_ref.clone(),
+            clients_structs.clone(),
             config_ref.clone(),
         ).await;
     });
@@ -113,7 +117,8 @@ async fn datagrams_handler(
     pings: Arc<Mutex<HashMap<u8, u128>>>,
     b_running: Arc<bool>,
     clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
-    config: Arc<Config>,
+    clients_structs: Arc<RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>>,
+    config: Arc<Config>
 ) {
     log(Info, DatagramsHandler, format!("Datagrams Handler spawned"), config.clone());
     // infinite loop receiving listening for datagrams
@@ -156,7 +161,7 @@ async fn datagrams_handler(
                     MessageType::CONNECT => {
                         // 4.1 - A user is trying to connect to the server
                         log(Info, DatagramsHandler, format!("{} is trying to connect", src.ip()), config.clone());
-                        let already_client = handle_connect(src, clients.clone(), receiver.clone(), clients_addresses.clone(), config.clone()).await;
+                        let (already_client, sender) = handle_connect(src, clients.clone(), receiver.clone(), clients_addresses.clone(),clients_structs.clone(), config.clone()).await;
                         let client_id = get_client_id(&src, clients_addresses.clone().read().await.to_owned()).await.unwrap();
 
                         // New client connected spawn a task to do some verification
@@ -178,6 +183,19 @@ async fn datagrams_handler(
                                     b_running_ref,
                                     config_ref,
                                 ).await;
+                            });
+                            // TODO : SPAWNER TOUT LES MANAGER DU NOUVEAU CLIENT !
+                            let cmd = StartManagers {
+                                clients:  clients.clone(),
+                                client_topics: clients_topics.clone(),
+                                clients_addresses: clients_addresses.clone(),
+                                clients_structs: clients_structs.clone(),
+                                b_running: b_running.clone(),
+                                server_sender: receiver.clone()
+                            };
+
+                            tokio::spawn(async move {
+                               let _ = sender.send(cmd).await;
                             });
                         }
                     }
@@ -210,7 +228,21 @@ async fn datagrams_handler(
                     MessageType::SHUTDOWN => {
                         // 4.4 - A user is trying to shutdown the connexion with the server
                         log(Info, DatagramsHandler, format!("{} is trying to shutdown the connexion with the server", client_id), config.clone());
-                        handle_disconnect(client_id, clients.clone(), clients_addresses.clone(), clients_topics.clone(), config.clone()).await;
+
+                        let cmd = HandleDisconnect {
+                            client_topics: clients_topics.clone(),
+                            clients_ref: clients.clone(),
+                            clients_addresses: clients_addresses.clone(),
+                            clients_structs: clients_structs.clone(),
+                        };
+
+                        let client_sender = {
+                            let map = clients.read().await;
+                            map.get(&client_id).unwrap().clone()
+                        };
+                        tokio::spawn(async move {
+                            let _ = client_sender.send(cmd).await;
+                        });
                     }
                     MessageType::HEARTBEAT => {
                         /*// 4.5 - A user is trying to sent an heartbeat
@@ -389,6 +421,7 @@ async fn heartbeat_checker(
     client_has_heartbeat_ref: Arc<RwLock<HashMap<u64, bool>>>,
     b_running: Arc<bool>,
     client_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+    clients_structs: Arc<RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>>,
     config: Arc<Config>,
 ) {
     log(Info, HeartbeatChecker, format!("HeartbeatChecker sender spawned for {}", client_id), config.clone());
@@ -453,8 +486,17 @@ async fn heartbeat_checker(
                 }
 
                 // 8.2 - Remove the client from the main array
-                handle_disconnect(client_id, clients.clone(), clients_addresses.clone(), client_topics.clone(), config.clone()).await;
                 // client's task will end automatically
+                let cmd = HandleDisconnect {
+                    client_topics: client_topics.clone(),
+                    clients_ref: clients.clone(),
+                    clients_addresses: clients_addresses.clone(),
+                    clients_structs: clients_structs.clone(),
+                };
+                let sender_ref = client_sender.clone();
+                tokio::spawn(async move {
+                    let _ = sender_ref.send(cmd).await;
+                });
             }
         } else {
             // 7bis - reset flags variable
@@ -478,7 +520,7 @@ async fn heartbeat_checker(
 }
 
 
-/** TODO doc
+/*/** TODO doc
 *
  */
 pub async fn handle_disconnect(
@@ -513,7 +555,7 @@ pub async fn handle_disconnect(
         clients_addresses.write().await.remove(&client_id);
     }
     log(Info, Other, format!("Disconnection of client {}", client_id), config.clone());
-}
+}*/
 
 /**
  */
