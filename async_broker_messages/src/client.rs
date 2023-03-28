@@ -77,6 +77,7 @@ impl Client {
     pub fn save_server_request_timestamp(&mut self, time: u128, config: Arc<Config>) {
         // Get the writ access to the value
         log(Info, ClientManager, format!("Last server request time updated for client {}", self.id), config.clone());
+
         let mut last_request_mut = self.last_request_from_server.write().unwrap();
         // Update it at now
         *last_request_mut = time;
@@ -337,7 +338,7 @@ pub async fn heartbeat_manager(
     server_sender: Arc<UdpSocket>,
     config: Arc<Config>,
 ) {
-    log(Info, HeartbeatChecker, format!("HeartbeatChecker sender spawned for {}", id), config.clone());
+    log(Info, HeartbeatChecker, format!("HeartbeatChecker spawned for {}", id), config.clone());
     // 1 - Init local variables
     let mut missed_heartbeats: u8 = 0; // used to count how many HB are missing
     let client_sender = {
@@ -398,9 +399,7 @@ pub async fn heartbeat_manager(
                     client_sender: sender_ref,
                 };
                 let sender_ref = client_sender.clone();
-                tokio::spawn(async move {
-                    let _ = sender_ref.send(cmd).await;
-                });
+                let _ = sender_ref.send(cmd).await;
             }
         } else {
             // 7bis - reset flags variable

@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use local_ip_address::local_ip;
 use tokio::{join, net::UdpSocket};
 use tokio::sync::mpsc::Sender;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
@@ -75,11 +75,22 @@ async fn main() {
     // clone needed value for the first task
     let datagram_socket = socket_ref.clone();
     let datagram_clients = clients_ref.clone();
-    let datagram_clients_address =clients_address_ref.clone();
+    let datagram_clients_address = clients_address_ref.clone();
     let datagram_pings = pings_ref.clone();
     let datagram_b_running = b_running.clone();
     let datagram_config = config_ref.clone();
 
+    let ping_sender = tokio::spawn(async move {
+        ping_sender(
+            socket_ref.clone(),
+            clients_address_ref.clone(),
+            clients_ref.clone(),
+            pings_ref.clone(),
+            b_running.clone(),
+            config_ref.clone(),
+        ).await;
+    });
+    // ... and then spawn the second task
     let datagram_handler = tokio::spawn(async move {
         datagrams_handler(
             datagram_socket,
@@ -93,17 +104,7 @@ async fn main() {
             datagram_config,
         ).await;
     });
-    // ... and then spawn the second task
-    let ping_sender = tokio::spawn(async move {
-        ping_sender(
-            socket_ref.clone(),
-            clients_address_ref.clone(),
-            clients_ref.clone(),
-            pings_ref.clone(),
-            b_running.clone(),
-            config_ref.clone(),
-        ).await;
-    });
+
 
     log(Info, Other, format!("Server is running ..."), config.clone());
 
@@ -179,28 +180,99 @@ async fn datagrams_handler(
                     MessageType::CONNECT => {
                         // 4.1 - A user is trying to connect to the server
                         log(Info, DatagramsHandler, format!("{} is trying to connect", src.ip()), config.clone());
-                        let (already_client, sender) = handle_connect(src, clients.clone(), receiver.clone(), clients_addresses.clone(), clients_structs.clone(), config.clone()).await;
-                        //let client_id = get_client_id(&src, clients_addresses.clone().read().await.to_owned()).await.unwrap();
 
-                        // New client connected spawn a task to start his personal managers
-                        if !already_client {
-                            let cmd = StartManagers {
-                                clients: clients.clone(),
-                                topics_subscribers: topics_subscribers.clone(),
-                                clients_addresses: clients_addresses.clone(),
-                                clients_structs: clients_structs.clone(),
-                                b_running: b_running.clone(),
-                                server_sender: receiver.clone(),
+                        let b_running_ref = b_running.clone();
+                        let socket_ref = receiver.clone();
+                        let clients_addresses_ref = clients_addresses.clone();
+                        let config_ref = config.clone();
+                        let topics_subscribers_ref = topics_subscribers.clone();
+                        let clients_structs_ref = clients_structs.clone();
+                        let clients_ref = clients.clone();
+                        let pings_ref = pings.clone();
+                        tokio::spawn(async move{
+                            let (is_connected, current_id) = already_connected(&src.ip(), clients_addresses_ref.read().await).await;
+                            let uuid;
+                            let result;
+
+                            if is_connected {
+                                // 2 - User already connected, return the same data as previous connection
+                                uuid = current_id;
+                                log(Info, DatagramsHandler, format!("{} was already a client, UUID : {}", src.ip(), uuid), config_ref.clone());
+                            } else {
+                                //3 - it's a new connection : generate a new id
+                                uuid = get_new_id();
+                                log(Info, DatagramsHandler, format!("{} is now a client, UUID : {}", src.ip(), uuid), config_ref.clone());
+
+                                // 3.1 - Create a chanel to exchange commands through
+                                let (sender, receiver) = mpsc::channel::<ClientActions>(32);
+                                let new_client = Client::new(uuid, src, receiver);
+                                let new_client_arc: Arc<Mutex<Client>> = Arc::new(tokio::sync::Mutex::new(new_client)); // clone new_client and wrap in Arc and Mutex
+
+                                // 3.2 - fill server arrays to keep in memory the connection
+                                {
+                                    let mut map = clients_ref.write().await;
+                                    map.insert(uuid, sender);
+                                }
+                                {
+                                    let manager_ref = new_client_arc.clone();
+                                    let config_ref_task = config_ref.clone();
+                                    tokio::spawn(async move{
+                                        manager_ref.lock().await.manager(config_ref_task).await;
+                                    });
+                                    let mut map = clients_structs_ref.write().await;
+                                    map.insert(uuid, new_client_arc);
+                                }
+                                {
+                                    let mut map_addr = clients_addresses_ref.write().await;
+                                    map_addr.insert(uuid, src);
+                                }
+
+                            }
+
+                            let datagram = &RQ_Connect_ACK_OK::new(uuid, config_ref.heart_beat_period).as_bytes();
+                            result = socket_ref.send_to(datagram, src).await;
+
+                            let sender = {
+                                let map = clients_ref.read().await;
+                                map.get(&uuid).unwrap().clone()
                             };
 
-                            tokio::spawn(async move {
-                                let _ = sender.send(cmd).await;
-                            });
+                            // New client connected spawn a task to start his personal managers
+                            if !is_connected {
+                                let cmd = StartManagers {
+                                    clients: clients_ref,
+                                    topics_subscribers: topics_subscribers_ref,
+                                    clients_addresses: clients_addresses_ref,
+                                    clients_structs: clients_structs_ref,
+                                    b_running: b_running_ref,
+                                    server_sender: socket_ref.clone(),
+                                };
 
-                            // init his ping with this request:
-                            let _ = receiver.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(), src).await;
-                        }
-                    }
+
+                                let cmd_sender = sender.clone();
+                                tokio::spawn(async move {
+                                    let _ = cmd_sender.send(cmd).await;
+                                });
+
+                                // init his ping with this request:
+                                let _ = socket_ref.send_to(&RQ_Ping::new(get_new_ping_reference(pings_ref, config_ref.clone()).await).as_bytes(), src).await;
+                            }
+
+                            let sslrs_sender = sender.clone();
+                            tokio::spawn(async move {
+                                save_server_last_request_sent(sslrs_sender, uuid).await;
+                            });
+                            match result {
+                                Ok(bytes) => {
+                                    log(Info, DatagramsHandler, format!("Send {} bytes (RQ_Connect_ACK_OK) to {}", bytes, src.ip()), config_ref.clone());
+                                }
+                                Err(error) => {
+                                    log(Error, DatagramsHandler, format!("Failed to send Connect ACK to {}.\nError: {}", src.ip(), error), config_ref.clone());
+                                }
+                            }
+                        });
+
+                    }// end connect
                     MessageType::DATA => {
                         // 4.2 - A user is trying to sent data to the server
                         log(Info, DatagramsHandler, format!("{} is trying to sent data", client_id), config.clone());
@@ -252,10 +324,10 @@ async fn datagrams_handler(
                         });
                     }
                     MessageType::HEARTBEAT => {
-                        /*// 4.5 - A user is trying to sent an heartbeat
+                        // 4.5 - A user is trying to sent an heartbeat
                         log(Info, DatagramsHandler, format!("{} is trying to sent an heartbeat", client_id), config.clone());
                         // check if client is still connected
-                        if clients.read().await.contains_key(&client_id) {
+                        /*if clients.read().await.contains_key(&client_id) {
                             // TODO: voir si c'est ok ou pas de pas check si la dernier rq est un HB ou pas.
                         }*/
                     }
@@ -382,6 +454,7 @@ async fn ping_sender(
     b_running: Arc<bool>,
     config: Arc<Config>,
 ) {
+    log(Info, PingSender, format!("Ping sender spawned"), config.clone());
     while *b_running {
         // get all connected ids:
         let ids: Vec<u64> = {
@@ -389,7 +462,6 @@ async fn ping_sender(
         };
 
         for client_id in ids {
-            log(Info, PingSender, format!("Ping sender spawned for {}", client_id), config.clone());
             let client_sender = {
                 let map = clients_senders.read().await;
                 map.get(&client_id).unwrap().clone()
@@ -398,24 +470,19 @@ async fn ping_sender(
                 let map = clients_address.read().await;
                 map.get(&client_id).unwrap().clone()
             };
+            // 2 - Send a ping request to the client
+            let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(), client_addr).await;
 
-
-            // 1 - Loop while server is running and client is online
-            while *b_running && is_online(client_id, clients_senders.clone()).await {
-                // 2 - Send a ping request to the client
-                let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(), client_addr).await;
-
-                let sender_ref = client_sender.clone();
-                tokio::spawn(async move {
-                    save_server_last_request_sent(sender_ref, client_id).await;
-                });
-                match result {
-                    Ok(bytes) => {
-                        log(Info, PingSender, format!("Send {} bytes to {}", bytes, client_id), config.clone());
-                    }
-                    Err(error) => {
-                        log(Error, PingSender, format!("Failed to send ping request to {}.\n{}", client_id, error), config.clone());
-                    }
+            let sender_ref = client_sender.clone();
+            tokio::spawn(async move {
+                save_server_last_request_sent(sender_ref, client_id).await;
+            });
+            match result {
+                Ok(bytes) => {
+                    log(Info, PingSender, format!("Send {} bytes to {}", bytes, client_id), config.clone());
+                }
+                Err(error) => {
+                    log(Error, PingSender, format!("Failed to send ping request to {}.\n{}", client_id, error), config.clone());
                 }
             }
         } // end for

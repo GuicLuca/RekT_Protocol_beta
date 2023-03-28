@@ -9,7 +9,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::client::Client;
 use crate::client_lib::{ClientActions, now_ms};
-use crate::client_lib::ClientActions::UpdateServerLastRequest;
+use crate::client_lib::ClientActions::{StartManagers, UpdateServerLastRequest};
 use crate::config::{Config, LogLevel};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
@@ -138,85 +138,6 @@ pub async fn get_client_id(
         }
     }
     None
-}
-
-/**
-This methods handle the connexion of a new client to the server.
-@param src SocketAddr : The new client
-@param clients MutexGuard<HashMap<u64, SocketAddr>> : Hashmap containing all clients address and clients id.
-@param socket Arc<UdpSocket> : Server socket to exchange datagrams with clients
-
-@return none
- */
-pub async fn handle_connect(
-    src: SocketAddr,
-    clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
-    socket: Arc<UdpSocket>,
-    clients_addresses: Arc<RwLock<HashMap<u64,SocketAddr>>>,
-    clients_structs: Arc<RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>>,
-    config: Arc<Config>,
-) -> (bool, Sender<ClientActions>) {
-    // 1 - check if user is connected
-    let (is_connected, current_id) = already_connected(&src.ip(), clients_addresses.read().await).await;
-    let uuid;
-    let result;
-
-    if is_connected {
-        // 2 - User already connected, return the same data as previous connection
-        uuid = current_id;
-        log(Info, DatagramsHandler, format!("{} was already a client, UUID : {}", src.ip(), uuid), config.clone());
-    } else {
-        //3 - it's a new connection : generate a new id
-        uuid = get_new_id();
-        log(Info, DatagramsHandler, format!("{} is now a client, UUID : {}", src.ip(), uuid), config.clone());
-
-        // 3.1 - Create a chanel to exchange commands through
-        let (sender, receiver) = mpsc::channel::<ClientActions>(32);
-        let new_client = Client::new(uuid, src, receiver);
-        let new_client_arc: Arc<Mutex<Client>> = Arc::new(tokio::sync::Mutex::new(new_client)); // clone new_client and wrap in Arc and Mutex
-
-        // 3.2 - fill server arrays to keep in memory the connection
-        {
-            let mut map = clients.write().await;
-            map.insert(uuid, sender);
-        }
-        {
-            let manager_ref = new_client_arc.clone();
-            let config_ref = config.clone();
-            tokio::spawn(async move{
-               manager_ref.lock().await.manager(config_ref).await;
-            });
-            let mut map = clients_structs.write().await;
-            map.insert(uuid, new_client_arc);
-        }
-        {
-            let mut map_addr = clients_addresses.write().await;
-            map_addr.insert(uuid, src);
-        }
-
-    }
-
-    let sender = {
-        let map = clients.read().await;
-        map.get(&uuid).unwrap().clone()
-    };
-
-    let datagram = &RQ_Connect_ACK_OK::new(uuid, config.heart_beat_period).as_bytes();
-    result = socket.send_to(datagram, src).await;
-
-    let sslrs_sender = sender.clone();
-    tokio::spawn(async move {
-        save_server_last_request_sent(sslrs_sender, uuid).await;
-    });
-    match result {
-        Ok(bytes) => {
-            log(Info, DatagramsHandler, format!("Send {} bytes (RQ_Connect_ACK_OK) to {}", bytes, src.ip()), config.clone());
-        }
-        Err(error) => {
-            log(Error, DatagramsHandler, format!("Failed to send Connect ACK to {}.\nError: {}", src.ip(), error), config.clone());
-        }
-    }
-    return (is_connected, sender);
 }
 
 

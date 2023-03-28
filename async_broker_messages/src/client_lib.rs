@@ -46,10 +46,10 @@ pub enum ClientActions {
         topic_id: u64
     },
     StartManagers{
-        clients: Arc<tokio::sync::RwLock<HashMap<u64, Sender<ClientActions>>>>,
-        topics_subscribers: Arc<tokio::sync::RwLock<HashMap<u64, HashSet<u64>>>>,
-        clients_addresses: Arc<tokio::sync::RwLock<HashMap<u64, SocketAddr>>>,
-        clients_structs: Arc<RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>>,
+        clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
+        topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+        clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+        clients_structs: Arc<RwLock<HashMap<u64, Arc<Mutex<Client>>>>>,
         b_running: Arc<bool>,
         server_sender: Arc<UdpSocket>
     },
