@@ -109,7 +109,7 @@ async fn main() {
     log(Info, Other, format!("Server is running ..."), config.clone());
 
 
-    let _ = join!(datagram_handler, ping_sender);
+    join!(datagram_handler, ping_sender);
 
     b_running = Arc::from(false);
     log(Info, Other, format!("Server has stopped ... Running status : {}", b_running), config.clone());
@@ -171,7 +171,7 @@ async fn datagrams_handler(
                     };
                     let cmd = UpdateClientLastRequest { time: now_ms() };
                     tokio::spawn(async move {
-                        let _ = client_sender.send(cmd).await;
+                        client_sender.send(cmd).await;
                     });
                 }
 
@@ -251,11 +251,11 @@ async fn datagrams_handler(
 
                                 let cmd_sender = sender.clone();
                                 tokio::spawn(async move {
-                                    let _ = cmd_sender.send(cmd).await;
+                                    cmd_sender.send(cmd).await.expect("Failed to send StartManagers command to client manager");
                                 });
 
                                 // init his ping with this request:
-                                let _ = socket_ref.send_to(&RQ_Ping::new(get_new_ping_reference(pings_ref, config_ref.clone()).await).as_bytes(), src).await;
+                                socket_ref.send_to(&RQ_Ping::new(get_new_ping_reference(pings_ref, config_ref.clone()).await).as_bytes(), src).await.expect("Failed to send ping to client");
                             }
 
                             let sslrs_sender = sender.clone();
@@ -283,7 +283,7 @@ async fn datagrams_handler(
                         let config_ref = config.clone();
                         let topics_subscribers_ref = topics_subscribers.clone();
                         let clients_ref = clients.clone();
-                        let _ = tokio::spawn(async move {
+                        tokio::spawn(async move {
                             handle_data(
                                 receiver_ref,
                                 buf,
@@ -320,7 +320,7 @@ async fn datagrams_handler(
                             map.get(&client_id).unwrap().clone()
                         };
                         tokio::spawn(async move {
-                            let _ = client_sender.send(cmd).await;
+                            client_sender.send(cmd).await.expect("Failed to send HandleDisconnect command to client manager");
                         });
                     }
                     MessageType::HEARTBEAT => {
@@ -352,7 +352,7 @@ async fn datagrams_handler(
                         };
 
                         tokio::spawn(async move {
-                            let _ = client_sender.send(cmd).await;
+                            client_sender.send(cmd).await.expect("Failed to send HandleTopicRequest command to client manager");
                         });
                     }
                     MessageType::PONG => {
@@ -421,7 +421,7 @@ async fn handle_data(
             let map = clients.read().await;
             map.get(&client).unwrap().clone()
         };
-        let data = RQ_Data::new(data_rq.topic_id, data_rq.data.clone());
+        let data = RQ_Data::new(, data_rq.topic_id, data_rq.data.clone());
         let data = data.as_bytes();
         let client_addr = {
             // use closure to reduce the lock lifetime

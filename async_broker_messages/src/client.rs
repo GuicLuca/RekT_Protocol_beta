@@ -105,17 +105,18 @@ impl Client {
                             "id" => {
                                 let res = self.id;
                                 // Ignore errors
-                                let _ = resp.send(Ok(res as u128));
+                                resp.send(Ok(res as u128)).expect("Error while sending response");
                             }
                             "last_request_from_client" => {
                                 let res = {
                                     *self.last_request_from_client.read().unwrap()
                                 };
                                 // Ignore errors
-                                let _ = resp.send(Ok(res));
+                                resp.send(Ok(res)).expect("Error while sending response");
                             }
                             _ => {
-                                let _ = resp.send(Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Bad key requested : \"{}\"", key))));
+                                resp.send(Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Bad key requested : \"{}\"", key))))
+                                    .expect("Error while sending response");
                             }
                         }
                     }
@@ -163,7 +164,7 @@ impl Client {
                                 let (tx, rx) = oneshot::channel();
                                 let cmd = GetTopics { resp: tx };
                                 tokio::spawn(async move {
-                                    let _ = client_sender.send(cmd).await;
+                                    client_sender.send(cmd).await.expect("Error while sending command to client");
                                 });
                                 rx.await.unwrap().unwrap().iter().cloned().collect() // transform the hashset to a vec
 
@@ -252,7 +253,7 @@ impl Client {
                                             let cmd = AddSubscribedTopic { topic_id };
                                             let cmd_sender = client_sender.clone();
                                             tokio::spawn(async move {
-                                                let _ = cmd_sender.send(cmd).await;
+                                                cmd_sender.send(cmd).await.expect("Error while sending command to client");
                                             });
 
                                             result = server_socket.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_SUB).as_bytes(), client_addr).await;
@@ -280,7 +281,7 @@ impl Client {
                                     let cmd = RemoveSubscribedTopic { topic_id };
                                     let cmd_sender = client_sender.clone();
                                     tokio::spawn(async move {
-                                        let _ = cmd_sender.send(cmd).await;
+                                        cmd_sender.send(cmd).await.expect("Error while sending command to client");
                                     });
 
                                     result = server_socket.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_USUB).as_bytes(), client_addr).await;
@@ -314,7 +315,7 @@ impl Client {
                             self.topics.read().unwrap().clone()
                         };
                         // Ignore errors
-                        let _ = resp.send(Ok(res));
+                        resp.send(Ok(res)).expect("Error while sending response to client");
                     }
                 } // end match
             }
@@ -399,7 +400,7 @@ pub async fn heartbeat_manager(
                     client_sender: sender_ref,
                 };
                 let sender_ref = client_sender.clone();
-                let _ = sender_ref.send(cmd).await;
+                sender_ref.send(cmd).await.expect("Error while sending HandleDisconnect to client");
             }
         } else {
             // 7bis - reset flags variable
