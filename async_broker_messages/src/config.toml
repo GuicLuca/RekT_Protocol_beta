@@ -2,7 +2,7 @@
 port = "3838"
 
 [period]
-heartbeat_period = 5
+heartbeat_period = 1
 ping_period = 5
 
 [debug]

@@ -7,13 +7,16 @@ use std::io::Error;
 use std::net::SocketAddr;
 use std::sync::{Arc};
 use std::time::{SystemTime, UNIX_EPOCH};
-use bytes::Bytes;
 use tokio::net::UdpSocket;
 
 use tokio::sync::{Mutex, oneshot, RwLock};
 use tokio::sync::mpsc::Sender;
 use crate::client::Client;
 use crate::client_lib::ClientActions::Get;
+use crate::config::Config;
+use crate::config::LogLevel::Warning;
+use crate::server_lib::log;
+use crate::server_lib::LogSource::ClientManager;
 
 // ===================
 //   Common used type
@@ -39,12 +42,13 @@ pub enum ClientActions {
         clients_structs: Arc<RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>>,
         b_running: Arc<bool>,
         server_sender: Arc<UdpSocket>,
+        pings: Arc<Mutex<HashMap<u8, u128>>>,
     },
     UpdateServerLastRequest{
-        // no parameter.
+        time: u128
     },
     UpdateClientLastRequest{
-        // no parameter.
+        time: u128
     },
     HandlePong {
         ping_id: u8, // The ping request that is answered
@@ -59,10 +63,17 @@ pub enum ClientActions {
     }
 }
 
+pub fn now_ms() -> u128
+{
+    return SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis(); // Current time in ms
+}
 
 pub async fn client_has_sent_life_sign(
     client_sender: Sender<ClientActions>,
-    heartbeat_period: u128
+    config: Arc<Config>
 ) -> bool
 {
     let now = SystemTime::now()
@@ -81,8 +92,8 @@ pub async fn client_has_sent_life_sign(
     client_sender.send(cmd).await.unwrap();
     let last_client_request = rx.await.unwrap().unwrap();
 
-    let should_have_give_life_sign = now - heartbeat_period;
-
+    let should_have_give_life_sign = now - (config.heart_beat_period*1000 ) as u128;
+    log(Warning, ClientManager, format!("Calcule du temps : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign), config);
     // return true if the last request is sooner than the current time minus the heartbeat_period
     return last_client_request >= should_have_give_life_sign;
 }

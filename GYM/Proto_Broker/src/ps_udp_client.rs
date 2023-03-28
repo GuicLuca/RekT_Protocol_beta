@@ -101,7 +101,9 @@ impl Client {
                         MessageType::DATA => {}
                         MessageType::OPEN_STREAM => {}
                         MessageType::SHUTDOWN => {}
-                        MessageType::HEARTBEAT => {}
+                        MessageType::HEARTBEAT => {
+                            //self.socket.send_to(&RQ_Heartbeat::new().as_bytes(), src);
+                        }
                         MessageType::OBJECT_REQUEST => {}
                         MessageType::TOPIC_REQUEST => {}
                         MessageType::PING => {
@@ -116,16 +118,19 @@ impl Client {
                                 }
                             }
                         }
-                        MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PONG => {}
+                        MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::PONG => {}
                         MessageType::UNKNOWN => {
                             println!("[Client] Received unknown packet from {}", src.ip())
                         }
+                        MessageType::HEARTBEAT_REQUEST => {
+                            self.socket.send_to(&RQ_Heartbeat::new().as_bytes(), src);
+                        }
                     }
                     //192.168.0.180
-                   /* for i in 0..100  {
+                   for i in 0..100  {
                         self.socket.send_to(&RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/home/topix/xd/ez/ez/ez/ez/ez/ez/ez/ez/ez").as_bytes(), src);
                         self.socket.send_to(&RQ_Heartbeat::new().as_bytes(), src);
-                    }*/
+                   }
                     //println!("{}", String::from_utf8_lossy(&buf[..n]));
                 }
                 Err(e) => {

@@ -9,7 +9,7 @@ use tokio::sync::{mpsc, Mutex, RwLock, RwLockReadGuard};
 use tokio::sync::mpsc::Sender;
 
 use crate::client::Client;
-use crate::client_lib::ClientActions;
+use crate::client_lib::{ClientActions, now_ms};
 use crate::client_lib::ClientActions::UpdateServerLastRequest;
 use crate::config::{Config, LogLevel};
 use crate::config::LogLevel::*;
@@ -37,27 +37,27 @@ pub fn log(
     if log_level < config.debug_level { return; }
 
     match log_source {
-        LogSource::DatagramsHandler => {
+        DatagramsHandler => {
             if !config.debug_datagram_handler { return; }
             println!("[Server - DatagramHandler] {}: {}", display_loglevel(log_level), message);
         }
-        LogSource::PingSender => {
+        PingSender => {
             if !config.debug_ping_sender { return; }
             println!("[Server - PingSender] {}: {}", display_loglevel(log_level), message);
         }
-        LogSource::DataHandler => {
+        DataHandler => {
             if !config.debug_data_handler { return; }
             println!("[Server - DataHandler] {}: {}", display_loglevel(log_level), message);
         }
-        LogSource::HeartbeatChecker => {
+        HeartbeatChecker => {
             if !config.debug_heartbeat_checker { return; }
             println!("[Server - HeartbeatChecker] {}: {}", display_loglevel(log_level), message);
         }
-        LogSource::TopicHandler => {
+        TopicHandler => {
             if !config.debug_topic_handler { return; }
             println!("[Server - TopicHandler] {}: {}", display_loglevel(log_level), message);
         }
-        LogSource::Other => {
+        Other => {
             println!("[Server] {}", message);
         }
         ClientManager => {
@@ -183,8 +183,9 @@ pub async fn handle_connect(
         }
         {
             let manager_ref = new_client_arc.clone();
+            let config_ref = config.clone();
             tokio::spawn(async move{
-               manager_ref.lock().await.manager().await;
+               manager_ref.lock().await.manager(config_ref).await;
             });
             let mut map = clients_structs.write().await;
             map.insert(uuid, new_client_arc);
@@ -203,7 +204,11 @@ pub async fn handle_connect(
 
     let datagram = &RQ_Connect_ACK_OK::new(uuid, config.heart_beat_period).as_bytes();
     result = socket.send_to(datagram, src).await;
-    save_server_last_request_sent(sender.to_owned(), uuid).await;
+
+    let sslrs_sender = sender.clone();
+    tokio::spawn(async move {
+        save_server_last_request_sent(sslrs_sender, uuid).await;
+    });
     match result {
         Ok(bytes) => {
             log(Info, DatagramsHandler, format!("Send {} bytes (RQ_Connect_ACK_OK) to {}", bytes, src.ip()), config.clone());
@@ -220,7 +225,7 @@ pub async fn save_server_last_request_sent(
     sender: Sender<ClientActions>,
     client_id: u64,
 ){
-    let cmd = UpdateServerLastRequest {};
+    let cmd = UpdateServerLastRequest {time: now_ms()};
     tokio::spawn(async move {
         sender.send(cmd).await.expect(&*format!("Failed to send the UpdateServerLastRequest command to the client {}", client_id));
     });

@@ -11,9 +11,10 @@ use bytes::Bytes;
 
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::Mutex;
 use tokio::time::sleep;
 
-use crate::client_lib::{client_has_sent_life_sign, ClientActions};
+use crate::client_lib::{client_has_sent_life_sign, ClientActions, now_ms};
 use crate::client_lib::ClientActions::HandleDisconnect;
 use crate::config::Config;
 use crate::config::LogLevel::*;
@@ -53,7 +54,7 @@ impl Client {
             id,
             socket,
             receiver,
-            last_request_from_client: RwLock::from(0),
+            last_request_from_client: RwLock::from(now_ms()),
             last_request_from_server: RwLock::from(0),
             missed_heartbeats: 0,
             ping: 0,
@@ -65,32 +66,26 @@ impl Client {
     /**
      * This method save the current time as the last client request received
      */
-    pub fn save_client_request_timestamp(&mut self) {
+    pub fn save_client_request_timestamp(&mut self, time: u128, config: Arc<Config>) {
         // Get the writ access to the value
         let config = Arc::new(Config::new());
         log(Info, ClientManager, format!("Last client request time updated for client {}", self.id), config.clone());
 
         let mut last_request_mut = self.last_request_from_client.write().unwrap();
         // Update it at now
-        *last_request_mut = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis(); // Current time in ms
+        *last_request_mut = time;
     }
 
     /**
      * This method save the current time as the last request sent from the server to this client
      */
-    pub fn save_server_request_timestamp(&mut self) {
+    pub fn save_server_request_timestamp(&mut self, time: u128, config: Arc<Config>) {
         // Get the writ access to the value
         let config = Arc::new(Config::new());
         log(Info, ClientManager, format!("Last server request time updated for client {}", self.id), config.clone());
         let mut last_request_mut = self.last_request_from_server.write().unwrap();
         // Update it at now
-        *last_request_mut = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis(); // Current time in ms
+        *last_request_mut = time;
     }
 
     /**
@@ -98,9 +93,8 @@ impl Client {
      * and which return result or process logic operation on the client
      * during his connection time.
      */
-    pub async fn manager(&mut self)
+    pub async fn manager(&mut self, config:Arc<Config>)
     {
-        let config = Arc::new(Config::new());
         log(Info, ClientManager, format!("Manager spawned for client {}", self.id), config.clone());
 
         // while client is alive ...
@@ -143,12 +137,12 @@ impl Client {
                     }
 
                     // The two following command update last interaction in the client and server sens
-                    ClientActions::UpdateServerLastRequest { .. } => {
-                        self.save_server_request_timestamp();
+                    ClientActions::UpdateServerLastRequest { time} => {
+                        self.save_server_request_timestamp(time, config.clone());
                     }
 
-                    ClientActions::UpdateClientLastRequest { .. } => {
-                        self.save_client_request_timestamp();
+                    ClientActions::UpdateClientLastRequest { time } => {
+                        self.save_client_request_timestamp(time, config.clone());
                     }
 
                     // This command clear client data and stop client's task
@@ -198,15 +192,39 @@ impl Client {
                         clients_addresses,
                         clients_structs,
                         b_running,
-                        server_sender} => {
+                        server_sender,
+                        pings,
+                    } => {
+
                         // heartbeat_manager :
+                        let config_ref = config.clone();
+                        let server_sender_ref = server_sender.clone();
                         let id = self.id;
                         let socket = self.socket;
+                        let clients_ref = clients.clone();
+                        let b_running_ref = b_running.clone();
                         tokio::spawn(async move {
-                            heartbeat_manager(id, socket, clients, client_topics, clients_addresses, clients_structs, b_running, server_sender).await;
+                            heartbeat_manager(id, socket, clients_ref, client_topics, clients_addresses, clients_structs, b_running, server_sender_ref, config_ref).await;
                         });
-                        // ping_manager
 
+                        // ping_manager
+                        let config_ref = config.clone();
+                        let server_sender_ref = server_sender.clone();
+                        let id = self.id;
+                        let socket = self.socket;
+                        let clients_ref = clients.clone();
+                        let pings_ref = pings.clone();
+                        let _ = tokio::spawn(async move {
+                            ping_manager(
+                                server_sender_ref,
+                                id,
+                                socket,
+                                clients_ref,
+                                pings_ref,
+                                b_running_ref,
+                                config_ref,
+                            ).await;
+                        });
                     }
                 } // end match
             }
@@ -228,8 +246,8 @@ pub async fn heartbeat_manager(
     clients_structs: Arc<tokio::sync::RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>>,
     b_running: Arc<bool>,
     server_sender: Arc<UdpSocket>,
+    config: Arc<Config>,
 ) {
-    let config = Arc::new(Config::new());
 
     log(Info, HeartbeatChecker, format!("HeartbeatChecker sender spawned for {}", id), config.clone());
     // 1 - Init local variables
@@ -245,14 +263,17 @@ pub async fn heartbeat_manager(
 
 
         // 6 - check if client has sent heartbeat
-        if !client_has_sent_life_sign(client_sender.clone(), config.heart_beat_period as u128).await {
+        if !client_has_sent_life_sign(client_sender.clone(), config.clone()).await {
             // increase the missing packet
             missed_heartbeats += 1;
             log(Info, HeartbeatChecker, format!("{} hasn't sent life signs {} times", id, missed_heartbeats), config.clone());
             if missed_heartbeats == 2 {
                 // 7 - send an heartbeat request
                 let result = server_sender.send_to(&RQ_Heartbeat_Request::new().as_bytes(), socket).await;
-                save_server_last_request_sent(client_sender.clone(), id).await;
+                let sender_ref = client_sender.clone();
+                tokio::spawn(async move {
+                    save_server_last_request_sent(sender_ref, id).await;
+                });
                 match result {
                     Ok(bytes) => {
                         log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, id), config.clone());
@@ -265,7 +286,10 @@ pub async fn heartbeat_manager(
                 // 8 - No Heartbeat for 4 period = end the client connection.
                 // 8.1 - Send shutdown request
                 let result = server_sender.send_to(&RQ_Shutdown::new(EndConnexionReason::SHUTDOWN).as_bytes(), socket).await;
-                save_server_last_request_sent(client_sender.clone(), id).await;
+                let sender_ref = client_sender.clone();
+                tokio::spawn(async move {
+                    save_server_last_request_sent(sender_ref, id).await;
+                });
                 match result {
                     Ok(bytes) => {
                         log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, id), config.clone());
@@ -292,7 +316,10 @@ pub async fn heartbeat_manager(
             // 7bis - reset flags variable
             missed_heartbeats = 0;
             let result = server_sender.send_to(&RQ_Heartbeat::new().as_bytes(), socket).await;
-            save_server_last_request_sent(client_sender.clone(), id).await;
+            let sender_ref = client_sender.clone();
+            tokio::spawn(async move {
+                save_server_last_request_sent(sender_ref, id).await;
+            });
             match result {
                 Ok(_) => {
                     log(Info, HeartbeatChecker, format!("Respond to client bytes (HeartBeat) to {}", id), config.clone());
@@ -306,4 +333,57 @@ pub async fn heartbeat_manager(
 
     // 9 - End the task
     log(Info, HeartbeatChecker, format!("Heartbeat checker destroyed for {}", id), config.clone());
+}
+
+
+
+/** TODO : doc
+This method send ping request to every connected clients
+@param sender Arc<UdpSocket> : An atomic reference of the UDP socket of the server
+@param client_id u64 : The client identifier.
+@param clients: Arc<RwLock<HashMap<u64, SocketAddr>>> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
+@param pings Arc<Mutex<HashMap<u8, u128>>> : An atomic reference of the pings HashMap. The map is protected by a mutex to be thread safe
+@param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
+@param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a mutex to be thread safe
+
+@return None
+ */
+async fn ping_manager(
+    sender: Arc<UdpSocket>,
+    client_id: u64,
+    client_addr: SocketAddr,
+    clients: Arc<tokio::sync::RwLock<HashMap<u64, Sender<ClientActions>>>>,
+    pings: Arc<Mutex<HashMap<u8, u128>>>,
+    b_running: Arc<bool>,
+    config: Arc<Config>,
+) {
+    log(Info, PingSender, format!("Ping sender spawned for {}", client_id), config.clone());
+    let client_sender = {
+        let map = clients.read().await;
+        map.get(&client_id).unwrap().clone()
+    };
+
+
+    // 1 - Loop while server is running and client is online
+    while *b_running && is_online(client_id, clients.clone()).await {
+        // 2 - Send a ping request to the client
+        let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(), client_addr).await;
+
+        let sender_ref = client_sender.clone();
+        tokio::spawn(async move {
+            save_server_last_request_sent(sender_ref, client_id).await;
+        });
+        match result {
+            Ok(bytes) => {
+                log(Info, PingSender, format!("Send {} bytes to {}", bytes, client_id), config.clone());
+            }
+            Err(error) => {
+                log(Error, PingSender, format!("Failed to send ping request to {}.\n{}", client_id, error), config.clone());
+            }
+        }
+        // 3 - wait 10 sec before ping everyone again
+        sleep(Duration::from_secs(config.ping_period as u64)).await;
+    }
+    // 4 - End the task
+    log(Info, PingSender, format!("Ping sender destroyed for {}", client_id), config.clone());
 }

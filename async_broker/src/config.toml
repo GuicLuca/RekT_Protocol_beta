@@ -2,11 +2,11 @@
 port = "3838"
 
 [period]
-heartbeat_period = 5
+heartbeat_period = 300
 ping_period = 5
 
 [debug]
-debug_level = 'All'
+debug_level = 'Quiet'
 debug_datagram_handler = true
 debug_ping_sender = true
 debug_data_handler = true
