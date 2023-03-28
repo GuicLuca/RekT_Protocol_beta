@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::string::String;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -10,10 +9,10 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
-use crate::client::Client;
 
+use crate::client::Client;
 use crate::client_lib::{ClientActions, now_ms};
-use crate::client_lib::ClientActions::{HandleDisconnect, HandlePong, StartManagers, UpdateClientLastRequest};
+use crate::client_lib::ClientActions::{HandleDisconnect, HandlePong, HandleTopicRequest, StartManagers, UpdateClientLastRequest};
 use crate::config::Config;
 use crate::config::LogLevel::*;
 use crate::datagram::*;
@@ -53,7 +52,7 @@ async fn main() {
     // List of clients represented by their address and their ID
     let clients: RwLock<HashMap<u64, Sender<ClientActions>>> = RwLock::new(HashMap::default()); // <Client ID, Sender> -> the sender is used to sent command through the mpsc channels
     let clients_ref = Arc::new(clients);
-    let clients_structs: Arc<RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>> = Arc::new(RwLock::new(HashMap::default())); // used only to keep struct alive
+    let clients_structs: Arc<RwLock<HashMap<u64, Arc<Mutex<Client>>>>> = Arc::new(RwLock::new(HashMap::default())); // used only to keep struct alive
 
     // List of clients address
     let clients_address: RwLock<HashMap<u64, SocketAddr>> = RwLock::new(HashMap::default()); // <Client ID, address>
@@ -62,8 +61,8 @@ async fn main() {
     // List of time reference for ping requests
     let pings_ref: Arc<Mutex<HashMap<u8, u128>>> = Arc::new(Mutex::new(HashMap::default())); // <Ping ID, reference time in ms>
 
-    // List of clients subscribed topic
-    let clients_topics_ref: Arc<RwLock<HashMap<u64, HashSet<u64>>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, [TopicsID]>
+    // List of topic subscribers
+    let topics_subscribers_ref: Arc<RwLock<HashMap<u64, HashSet<u64>>>> = Arc::new(RwLock::new(HashMap::default())); // <Topic ID, [Clients ID]>
 
     log(Info, Other, format!("Server variables successfully initialized"), config.clone());
 
@@ -72,24 +71,44 @@ async fn main() {
     // =============================
     b_running = Arc::from(true);
     let config_ref = config.clone();
+
+    // clone needed value for the first task
+    let datagram_socket = socket_ref.clone();
+    let datagram_clients = clients_ref.clone();
+    let datagram_clients_address =clients_address_ref.clone();
+    let datagram_pings = pings_ref.clone();
+    let datagram_b_running = b_running.clone();
+    let datagram_config = config_ref.clone();
+
     let datagram_handler = tokio::spawn(async move {
         datagrams_handler(
-            socket_ref.clone(),
-            clients_ref.clone(),
-            clients_address_ref.clone(),
+            datagram_socket,
+            datagram_clients,
+            datagram_clients_address,
             root_ref.clone(),
+            datagram_pings,
+            datagram_b_running,
+            topics_subscribers_ref.clone(),
+            clients_structs.clone(),
+            datagram_config,
+        ).await;
+    });
+    // ... and then spawn the second task
+    let ping_sender = tokio::spawn(async move {
+        ping_sender(
+            socket_ref.clone(),
+            clients_address_ref.clone(),
+            clients_ref.clone(),
             pings_ref.clone(),
             b_running.clone(),
-            clients_topics_ref.clone(),
-            clients_structs.clone(),
             config_ref.clone(),
         ).await;
     });
 
     log(Info, Other, format!("Server is running ..."), config.clone());
 
-    #[allow(unused)]
-        let res1 = join!(datagram_handler);
+
+    let _ = join!(datagram_handler, ping_sender);
 
     b_running = Arc::from(false);
     log(Info, Other, format!("Server has stopped ... Running status : {}", b_running), config.clone());
@@ -115,9 +134,9 @@ async fn datagrams_handler(
     root: Arc<RwLock<Topic>>,
     pings: Arc<Mutex<HashMap<u8, u128>>>,
     b_running: Arc<bool>,
-    clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
-    clients_structs: Arc<RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>>,
-    config: Arc<Config>
+    topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+    clients_structs: Arc<RwLock<HashMap<u64, Arc<Mutex<Client>>>>>,
+    config: Arc<Config>,
 ) {
     log(Info, DatagramsHandler, format!("Datagrams Handler spawned"), config.clone());
     // infinite loop receiving listening for datagrams
@@ -149,7 +168,7 @@ async fn datagrams_handler(
                         let map = clients.read().await;
                         map.get(&client_id).unwrap().clone()
                     };
-                    let cmd = UpdateClientLastRequest {time: now_ms()};
+                    let cmd = UpdateClientLastRequest { time: now_ms() };
                     tokio::spawn(async move {
                         let _ = client_sender.send(cmd).await;
                     });
@@ -160,24 +179,26 @@ async fn datagrams_handler(
                     MessageType::CONNECT => {
                         // 4.1 - A user is trying to connect to the server
                         log(Info, DatagramsHandler, format!("{} is trying to connect", src.ip()), config.clone());
-                        let (already_client, sender) = handle_connect(src, clients.clone(), receiver.clone(), clients_addresses.clone(),clients_structs.clone(), config.clone()).await;
-                        let client_id = get_client_id(&src, clients_addresses.clone().read().await.to_owned()).await.unwrap();
+                        let (already_client, sender) = handle_connect(src, clients.clone(), receiver.clone(), clients_addresses.clone(), clients_structs.clone(), config.clone()).await;
+                        //let client_id = get_client_id(&src, clients_addresses.clone().read().await.to_owned()).await.unwrap();
 
-                        // New client connected spawn a task to do some verification
+                        // New client connected spawn a task to start his personal managers
                         if !already_client {
                             let cmd = StartManagers {
-                                clients:  clients.clone(),
-                                client_topics: clients_topics.clone(),
+                                clients: clients.clone(),
+                                topics_subscribers: topics_subscribers.clone(),
                                 clients_addresses: clients_addresses.clone(),
                                 clients_structs: clients_structs.clone(),
                                 b_running: b_running.clone(),
                                 server_sender: receiver.clone(),
-                                pings: pings.clone(),
                             };
 
                             tokio::spawn(async move {
-                               let _ = sender.send(cmd).await;
+                                let _ = sender.send(cmd).await;
                             });
+
+                            // init his ping with this request:
+                            let _ = receiver.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(), src).await;
                         }
                     }
                     MessageType::DATA => {
@@ -188,7 +209,7 @@ async fn datagrams_handler(
                         let receiver_ref = receiver.clone();
                         let clients_addresses_ref = clients_addresses.clone();
                         let config_ref = config.clone();
-                        let clients_topics_ref = clients_topics.clone();
+                        let topics_subscribers_ref = topics_subscribers.clone();
                         let clients_ref = clients.clone();
                         let _ = tokio::spawn(async move {
                             handle_data(
@@ -197,7 +218,7 @@ async fn datagrams_handler(
                                 client_id,
                                 clients_ref,
                                 clients_addresses_ref,
-                                clients_topics_ref,
+                                topics_subscribers_ref,
                                 config_ref,
                             ).await;
                         });
@@ -210,11 +231,16 @@ async fn datagrams_handler(
                         // 4.4 - A user is trying to shutdown the connexion with the server
                         log(Info, DatagramsHandler, format!("{} is trying to shutdown the connexion with the server", client_id), config.clone());
 
+                        let client_sender = {
+                            let map = clients.read().await;
+                            map.get(&client_id).unwrap().clone()
+                        };
                         let cmd = HandleDisconnect {
-                            client_topics: clients_topics.clone(),
+                            topics_subscribers: topics_subscribers.clone(),
                             clients_ref: clients.clone(),
                             clients_addresses: clients_addresses.clone(),
                             clients_structs: clients_structs.clone(),
+                            client_sender,
                         };
 
                         let client_sender = {
@@ -241,27 +267,20 @@ async fn datagrams_handler(
                         // 4.7 - A user is trying to request a new topic
                         log(Info, DatagramsHandler, format!("{} is trying to request a new topic", client_id), config.clone());
 
-
-                        // Clone needed variable
-                        let receiver_ref = receiver.clone();
-                        let config_ref = config.clone();
-                        let root_ref = root.clone();
-                        let clients_topics_ref = clients_topics.clone();
                         let client_sender = {
-                            clients.read().await.get(&client_id).unwrap().clone()
+                            let map = clients.read().await;
+                            map.get(&client_id).unwrap().clone()
+                        };
+                        let cmd = HandleTopicRequest {
+                            server_socket: receiver.clone(),
+                            buffer: buf,
+                            topics_subscribers: topics_subscribers.clone(),
+                            root_ref: root.clone(),
+                            client_sender: client_sender.clone(),
                         };
 
-                        let _ = tokio::spawn(async move {
-                            topics_request_handler(
-                                receiver_ref,
-                                buf,
-                                client_id,
-                                src,
-                                client_sender,
-                                clients_topics_ref,
-                                root_ref,
-                                config_ref,
-                            ).await;
+                        tokio::spawn(async move {
+                            let _ = client_sender.send(cmd).await;
                         });
                     }
                     MessageType::PONG => {
@@ -312,23 +331,30 @@ async fn handle_data(
     config: Arc<Config>,
 ) {
     let data_rq = RQ_Data::from(buffer.as_ref());
-    let read_client_topics = clients_topics.read().await;
 
-    if !read_client_topics.contains_key(&data_rq.topic_id) {
-        log(Warning, DataHandler, format!("Topic {} doesn't exist", data_rq.topic_id), config.clone());
-        return;
-    }
+    let mut interested_clients = {
+        let read_client_topics = clients_topics.read().await;
+        if !read_client_topics.contains_key(&data_rq.topic_id) {
+            log(Warning, DataHandler, format!("Topic {} doesn't exist", data_rq.topic_id), config.clone());
+            return;
+        }
 
-    let mut interested_clients = read_client_topics.get(&data_rq.topic_id).unwrap().clone();
+        read_client_topics.get(&data_rq.topic_id).unwrap().clone()
+    };
+
+
     interested_clients.remove(&client_id);
     for client in interested_clients {
         let client_sender = {
             let map = clients.read().await;
             map.get(&client).unwrap().clone()
         };
-        let client_addr = *clients_addresses.read().await.get(&client).unwrap();
         let data = RQ_Data::new(data_rq.topic_id, data_rq.data.clone());
         let data = data.as_bytes();
+        let client_addr = {
+            // use closure to reduce the lock lifetime
+            *clients_addresses.read().await.get(&client).unwrap()
+        };
         let result = sender.send_to(&data, client_addr).await.unwrap();
         tokio::spawn(async move {
             save_server_last_request_sent(client_sender, client_id).await;
@@ -337,76 +363,65 @@ async fn handle_data(
     }
 }
 
+/** TODO : doc
+This method send ping request to every connected clients
+@param sender Arc<UdpSocket> : An atomic reference of the UDP socket of the server
+@param client_id u64 : The client identifier.
+@param clients: Arc<RwLock<HashMap<u64, SocketAddr>>> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
+@param pings Arc<Mutex<HashMap<u8, u128>>> : An atomic reference of the pings HashMap. The map is protected by a mutex to be thread safe
+@param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
+@param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a mutex to be thread safe
 
-/**
+@return None
  */
-async fn topics_request_handler(
+async fn ping_sender(
     sender: Arc<UdpSocket>,
-    buffer: [u8; 1024],
-    client_id: u64,
-    client_addr: SocketAddr,
-    client_sender: Sender<ClientActions>,
-    clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
-    root_ref: Arc<RwLock<Topic>>,
+    clients_address: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    clients_senders: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
+    pings: Arc<Mutex<HashMap<u8, u128>>>,
+    b_running: Arc<bool>,
     config: Arc<Config>,
 ) {
-    // 1 - Init local variables
-    let topic_rq = RQ_TopicRequest::from(buffer.as_ref());
+    while *b_running {
+        // get all connected ids:
+        let ids: Vec<u64> = {
+            clients_address.read().await.keys().map(|s| *s).collect()
+        };
 
-    let topic_path = String::from_utf8(topic_rq.payload).unwrap();
+        for client_id in ids {
+            log(Info, PingSender, format!("Ping sender spawned for {}", client_id), config.clone());
+            let client_sender = {
+                let map = clients_senders.read().await;
+                map.get(&client_id).unwrap().clone()
+            };
+            let client_addr = {
+                let map = clients_address.read().await;
+                map.get(&client_id).unwrap().clone()
+            };
 
-    let result;
 
-    match topic_rq.action {
-        TopicsAction::SUBSCRIBE => {
-            let topic_result = create_topics(&topic_path, root_ref.clone()).await;
+            // 1 - Loop while server is running and client is online
+            while *b_running && is_online(client_id, clients_senders.clone()).await {
+                // 2 - Send a ping request to the client
+                let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(), client_addr).await;
 
-            match topic_result {
-                Ok(topic_id) => {
-                    clients_topics.write().await.entry(topic_id)
-                        .and_modify(|vec| {
-                            vec.insert(client_id);
-                        })
-                        .or_insert({
-                            let mut tmp = HashSet::new();
-                            tmp.insert(client_id);
-                            tmp
-                        });
-                    result = sender.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_SUB).as_bytes(), client_addr).await;
-                    tokio::spawn(async move {
-                        save_server_last_request_sent(client_sender, client_id).await;
-                    });
-                }
-                Err(_) => {
-                    result = sender.send_to(&RQ_TopicRequest_NACK::new(TopicsResponse::FAILURE_SUB, "Subscribing to {} failed :(".to_string()).as_bytes(), client_addr).await;
-                    tokio::spawn(async move {
-                        save_server_last_request_sent(client_sender, client_id).await;
-                    });
+                let sender_ref = client_sender.clone();
+                tokio::spawn(async move {
+                    save_server_last_request_sent(sender_ref, client_id).await;
+                });
+                match result {
+                    Ok(bytes) => {
+                        log(Info, PingSender, format!("Send {} bytes to {}", bytes, client_id), config.clone());
+                    }
+                    Err(error) => {
+                        log(Error, PingSender, format!("Failed to send ping request to {}.\n{}", client_id, error), config.clone());
+                    }
                 }
             }
-        }
-        TopicsAction::UNSUBSCRIBE => {
-            let topic_id = custom_string_hash(&topic_path);
-
-            clients_topics.write().await.entry(topic_id).and_modify(|vec| { vec.retain(|e| *e != client_id) });
-
-            result = sender.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_USUB).as_bytes(), client_addr).await;
-            tokio::spawn(async move {
-                save_server_last_request_sent(client_sender, client_id).await;
-            });
-
-        }
-        TopicsAction::UNKNOWN => {
-            result = Ok(0);
-        }
-    }
-
-    match result {
-        Ok(bytes) => {
-            log(Info, TopicHandler, format!("Send {} bytes to {}", bytes, client_id), config.clone());
-        }
-        Err(error) => {
-            log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error), config.clone());
-        }
-    }
+        } // end for
+        // 3 - wait 10 sec before ping everyone again
+        sleep(Duration::from_secs(config.ping_period as u64)).await;
+    }// end while
+    // 4 - End the task
+    log(Info, PingSender, format!("Ping sender destroyed"), config.clone());
 }

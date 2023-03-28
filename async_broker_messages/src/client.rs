@@ -6,16 +6,14 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use bytes::Bytes;
-
+use std::time::{Duration};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, oneshot};
 use tokio::time::sleep;
 
 use crate::client_lib::{client_has_sent_life_sign, ClientActions, now_ms};
-use crate::client_lib::ClientActions::HandleDisconnect;
+use crate::client_lib::ClientActions::*;
 use crate::config::Config;
 use crate::config::LogLevel::*;
 use crate::datagram::*;
@@ -32,13 +30,12 @@ pub struct Client {
     // Connection checker
     last_request_from_client: RwLock<u128>,
     last_request_from_server: RwLock<u128>,
+
     // Timestamp of the last request received from this user
-    missed_heartbeats: u8,
-    // amount of heartbeats_request no received
     ping: u128, // client ping in ms
 
     // Topics
-    topics: RwLock<Vec<u64>>,
+    topics: RwLock<HashSet<u64>>,
     // Contain each subscribed topic id
     requests_counter: RwLock<HashMap<u64, u8>>, // Contain the id of the last request on a topic for scheduling
 }
@@ -56,9 +53,8 @@ impl Client {
             receiver,
             last_request_from_client: RwLock::from(now_ms()),
             last_request_from_server: RwLock::from(0),
-            missed_heartbeats: 0,
             ping: 0,
-            topics: RwLock::from(Vec::new()),
+            topics: RwLock::from(HashSet::new()),
             requests_counter: RwLock::from(HashMap::new()),
         }
     }
@@ -68,7 +64,6 @@ impl Client {
      */
     pub fn save_client_request_timestamp(&mut self, time: u128, config: Arc<Config>) {
         // Get the writ access to the value
-        let config = Arc::new(Config::new());
         log(Info, ClientManager, format!("Last client request time updated for client {}", self.id), config.clone());
 
         let mut last_request_mut = self.last_request_from_client.write().unwrap();
@@ -81,7 +76,6 @@ impl Client {
      */
     pub fn save_server_request_timestamp(&mut self, time: u128, config: Arc<Config>) {
         // Get the writ access to the value
-        let config = Arc::new(Config::new());
         log(Info, ClientManager, format!("Last server request time updated for client {}", self.id), config.clone());
         let mut last_request_mut = self.last_request_from_server.write().unwrap();
         // Update it at now
@@ -93,7 +87,7 @@ impl Client {
      * and which return result or process logic operation on the client
      * during his connection time.
      */
-    pub async fn manager(&mut self, config:Arc<Config>)
+    pub async fn manager(&mut self, config: Arc<Config>)
     {
         log(Info, ClientManager, format!("Manager spawned for client {}", self.id), config.clone());
 
@@ -104,16 +98,18 @@ impl Client {
                 match cmd {
 
                     // This command return the value of the requested key
-                    ClientActions::Get { key, resp } => {
+                    Get { key, resp } => {
                         match key.as_str() {
                             // list of valid key under :
                             "id" => {
                                 let res = self.id;
                                 // Ignore errors
                                 let _ = resp.send(Ok(res as u128));
-                            },
+                            }
                             "last_request_from_client" => {
-                                let res = *self.last_request_from_client.read().unwrap();
+                                let res = {
+                                    *self.last_request_from_client.read().unwrap()
+                                };
                                 // Ignore errors
                                 let _ = resp.send(Ok(res));
                             }
@@ -124,7 +120,7 @@ impl Client {
                     }
 
                     // This command compute the ping and save the result in the local client object
-                    ClientActions::HandlePong { ping_id, current_time, pings_ref } => {
+                    HandlePong { ping_id, current_time, pings_ref } => {
                         // 1 - get the mutable ref of all ping request
                         let mut pings_ref_mut = pings_ref.lock().await;
                         // 2 - compute the round trip
@@ -137,20 +133,21 @@ impl Client {
                     }
 
                     // The two following command update last interaction in the client and server sens
-                    ClientActions::UpdateServerLastRequest { time} => {
+                    UpdateServerLastRequest { time } => {
                         self.save_server_request_timestamp(time, config.clone());
                     }
 
-                    ClientActions::UpdateClientLastRequest { time } => {
+                    UpdateClientLastRequest { time } => {
                         self.save_client_request_timestamp(time, config.clone());
                     }
 
                     // This command clear client data and stop client's task
-                    ClientActions::HandleDisconnect {
-                        client_topics,
+                    HandleDisconnect {
+                        topics_subscribers,
                         clients_ref,
                         clients_addresses,
-                        clients_structs
+                        clients_structs,
+                        client_sender
                     } => {
                         let client_id = self.id.clone();
                         let config_ref = config.clone();
@@ -161,14 +158,23 @@ impl Client {
                                 3 - clients_addresses => this address is now free for a new connection
                             */
                             // 1 - loops trough client_topics topics and remove the client from the topic
-                            let client_topics = &client_topics;
                             let topic_ids: Vec<u64> = {
-                                let read_client_topics = client_topics.read().await;
-                                read_client_topics.keys().cloned().collect()
+                                let (tx, rx) = oneshot::channel();
+                                let cmd = GetTopics { resp: tx };
+                                tokio::spawn(async move {
+                                    let _ = client_sender.send(cmd).await;
+                                });
+                                rx.await.unwrap().unwrap().iter().cloned().collect() // transform the hashset to a vec
+
+                                //let read_client_topics = topics_subscribers.read().await;
+                                //read_client_topics.keys().cloned().collect()
                             };
-                            let mut write_client_topics = client_topics.write().await;
-                            for topic_id in topic_ids {
-                                write_client_topics.get_mut(&topic_id).unwrap().remove(&client_id);
+
+                            {
+                                let mut write_client_topics = topics_subscribers.write().await;
+                                for topic_id in topic_ids {
+                                    write_client_topics.get_mut(&topic_id).unwrap().remove(&client_id);
+                                }
                             }
 
                             // 2&3 - Remove the id from the server memory
@@ -183,17 +189,16 @@ impl Client {
                             }
                             log(Info, Other, format!("Disconnection of client {}", client_id), config_ref);
                         });
-                    },
+                    }
 
                     // This command start every client managers
-                    ClientActions::StartManagers {
+                    StartManagers {
                         clients,
-                        client_topics,
+                        topics_subscribers,
                         clients_addresses,
                         clients_structs,
                         b_running,
                         server_sender,
-                        pings,
                     } => {
 
                         // heartbeat_manager :
@@ -202,29 +207,113 @@ impl Client {
                         let id = self.id;
                         let socket = self.socket;
                         let clients_ref = clients.clone();
-                        let b_running_ref = b_running.clone();
                         tokio::spawn(async move {
-                            heartbeat_manager(id, socket, clients_ref, client_topics, clients_addresses, clients_structs, b_running, server_sender_ref, config_ref).await;
+                            heartbeat_manager(id, socket, clients_ref, topics_subscribers, clients_addresses, clients_structs, b_running, server_sender_ref, config_ref).await;
                         });
+                    }
 
-                        // ping_manager
+                    // This command will compute the request and respond to the client
+                    HandleTopicRequest {
+                        server_socket,
+                        topics_subscribers,
+                        buffer,
+                        root_ref,
+                        client_sender,
+                    } => {
+                        let client_id = self.id;
+                        let client_addr = self.socket;
                         let config_ref = config.clone();
-                        let server_sender_ref = server_sender.clone();
-                        let id = self.id;
-                        let socket = self.socket;
-                        let clients_ref = clients.clone();
-                        let pings_ref = pings.clone();
-                        let _ = tokio::spawn(async move {
-                            ping_manager(
-                                server_sender_ref,
-                                id,
-                                socket,
-                                clients_ref,
-                                pings_ref,
-                                b_running_ref,
-                                config_ref,
-                            ).await;
+                        tokio::spawn(async move {
+                            // 1 - Init local variables
+                            let topic_rq = RQ_TopicRequest::from(buffer.as_ref());
+                            let topic_path = String::from_utf8(topic_rq.payload).unwrap();
+                            let result;
+
+                            match topic_rq.action {
+                                TopicsAction::SUBSCRIBE => {
+                                    let topic_result = create_topics(&topic_path, root_ref.clone()).await;
+
+                                    match topic_result {
+                                        Ok(topic_id) => {
+                                            // Update topics_subscribers array
+                                            {
+                                                topics_subscribers.write().await.entry(topic_id)
+                                                    .and_modify(|vec| {
+                                                        vec.insert(client_id);
+                                                    })
+                                                    .or_insert({
+                                                        let mut tmp = HashSet::new();
+                                                        tmp.insert(client_id);
+                                                        tmp
+                                                    });
+                                            }
+                                            // Add the new topic id to the client
+                                            let cmd = AddSubscribedTopic { topic_id };
+                                            let cmd_sender = client_sender.clone();
+                                            tokio::spawn(async move {
+                                                let _ = cmd_sender.send(cmd).await;
+                                            });
+
+                                            result = server_socket.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_SUB).as_bytes(), client_addr).await;
+                                            tokio::spawn(async move {
+                                                save_server_last_request_sent(client_sender, client_id).await;
+                                            });
+                                        }
+                                        Err(_) => {
+                                            result = server_socket.send_to(&RQ_TopicRequest_NACK::new(TopicsResponse::FAILURE_SUB, "Subscribing to {} failed :(".to_string()).as_bytes(), client_addr).await;
+                                            tokio::spawn(async move {
+                                                save_server_last_request_sent(client_sender, client_id).await;
+                                            });
+                                        }
+                                    }
+                                }
+                                TopicsAction::UNSUBSCRIBE => {
+                                    // get the hash of the topic
+                                    let topic_id = custom_string_hash(&topic_path);
+                                    // Remove it from the common array
+                                    {
+                                        topics_subscribers.write().await.entry(topic_id).and_modify(|vec| { vec.retain(|e| *e != client_id) });
+                                    }
+
+                                    // remove it from the personal client set
+                                    let cmd = RemoveSubscribedTopic { topic_id };
+                                    let cmd_sender = client_sender.clone();
+                                    tokio::spawn(async move {
+                                        let _ = cmd_sender.send(cmd).await;
+                                    });
+
+                                    result = server_socket.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_USUB).as_bytes(), client_addr).await;
+                                    tokio::spawn(async move {
+                                        save_server_last_request_sent(client_sender, client_id).await;
+                                    });
+                                }
+                                TopicsAction::UNKNOWN => {
+                                    result = Ok(0);
+                                }
+                            }
+
+                            match result {
+                                Ok(bytes) => {
+                                    log(Info, TopicHandler, format!("Send {} bytes to {}", bytes, client_id), config_ref.clone());
+                                }
+                                Err(error) => {
+                                    log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error), config_ref.clone());
+                                }
+                            }
                         });
+                    }
+                    AddSubscribedTopic { topic_id } => {
+                        self.topics.write().unwrap().insert(topic_id); // Warning: code bloquant
+                    }
+                    RemoveSubscribedTopic { topic_id } => {
+                        self.topics.write().unwrap().remove(&topic_id); // Warning: code bloquant
+                    }
+                    GetTopics { resp } => {
+                        let res = {
+                            self.topics.read().unwrap().clone()
+                        };
+                        // Ignore errors
+                        let _ = resp.send(Ok(res));
                     }
                 } // end match
             }
@@ -241,14 +330,13 @@ pub async fn heartbeat_manager(
     id: u64,
     socket: SocketAddr,
     clients: Arc<tokio::sync::RwLock<HashMap<u64, Sender<ClientActions>>>>,
-    client_topics: Arc<tokio::sync::RwLock<HashMap<u64, HashSet<u64>>>>,
+    topics_subscribers: Arc<tokio::sync::RwLock<HashMap<u64, HashSet<u64>>>>,
     clients_addresses: Arc<tokio::sync::RwLock<HashMap<u64, SocketAddr>>>,
-    clients_structs: Arc<tokio::sync::RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>>,
+    clients_structs: Arc<tokio::sync::RwLock<HashMap<u64, Arc<Mutex<Client>>>>>,
     b_running: Arc<bool>,
     server_sender: Arc<UdpSocket>,
     config: Arc<Config>,
 ) {
-
     log(Info, HeartbeatChecker, format!("HeartbeatChecker sender spawned for {}", id), config.clone());
     // 1 - Init local variables
     let mut missed_heartbeats: u8 = 0; // used to count how many HB are missing
@@ -301,11 +389,13 @@ pub async fn heartbeat_manager(
 
                 // 8.2 - Remove the client from the main array
                 // client's task will end automatically
+                let sender_ref = client_sender.clone();
                 let cmd = HandleDisconnect {
-                    client_topics: client_topics.clone(),
+                    topics_subscribers: topics_subscribers.clone(),
                     clients_ref: clients.clone(),
                     clients_addresses: clients_addresses.clone(),
                     clients_structs: clients_structs.clone(),
+                    client_sender: sender_ref,
                 };
                 let sender_ref = client_sender.clone();
                 tokio::spawn(async move {
@@ -333,57 +423,4 @@ pub async fn heartbeat_manager(
 
     // 9 - End the task
     log(Info, HeartbeatChecker, format!("Heartbeat checker destroyed for {}", id), config.clone());
-}
-
-
-
-/** TODO : doc
-This method send ping request to every connected clients
-@param sender Arc<UdpSocket> : An atomic reference of the UDP socket of the server
-@param client_id u64 : The client identifier.
-@param clients: Arc<RwLock<HashMap<u64, SocketAddr>>> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
-@param pings Arc<Mutex<HashMap<u8, u128>>> : An atomic reference of the pings HashMap. The map is protected by a mutex to be thread safe
-@param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
-@param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a mutex to be thread safe
-
-@return None
- */
-async fn ping_manager(
-    sender: Arc<UdpSocket>,
-    client_id: u64,
-    client_addr: SocketAddr,
-    clients: Arc<tokio::sync::RwLock<HashMap<u64, Sender<ClientActions>>>>,
-    pings: Arc<Mutex<HashMap<u8, u128>>>,
-    b_running: Arc<bool>,
-    config: Arc<Config>,
-) {
-    log(Info, PingSender, format!("Ping sender spawned for {}", client_id), config.clone());
-    let client_sender = {
-        let map = clients.read().await;
-        map.get(&client_id).unwrap().clone()
-    };
-
-
-    // 1 - Loop while server is running and client is online
-    while *b_running && is_online(client_id, clients.clone()).await {
-        // 2 - Send a ping request to the client
-        let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(), client_addr).await;
-
-        let sender_ref = client_sender.clone();
-        tokio::spawn(async move {
-            save_server_last_request_sent(sender_ref, client_id).await;
-        });
-        match result {
-            Ok(bytes) => {
-                log(Info, PingSender, format!("Send {} bytes to {}", bytes, client_id), config.clone());
-            }
-            Err(error) => {
-                log(Error, PingSender, format!("Failed to send ping request to {}.\n{}", client_id, error), config.clone());
-            }
-        }
-        // 3 - wait 10 sec before ping everyone again
-        sleep(Duration::from_secs(config.ping_period as u64)).await;
-    }
-    // 4 - End the task
-    log(Info, PingSender, format!("Ping sender destroyed for {}", client_id), config.clone());
 }

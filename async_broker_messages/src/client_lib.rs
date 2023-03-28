@@ -17,6 +17,7 @@ use crate::config::Config;
 use crate::config::LogLevel::Warning;
 use crate::server_lib::log;
 use crate::server_lib::LogSource::ClientManager;
+use crate::topic::Topic;
 
 // ===================
 //   Common used type
@@ -35,14 +36,22 @@ pub enum ClientActions {
         key: String,
         resp: Responder<u128>,
     },
+    GetTopics{
+        resp: Responder<HashSet<u64>>
+    },
+    AddSubscribedTopic{
+        topic_id: u64
+    },
+    RemoveSubscribedTopic{
+        topic_id: u64
+    },
     StartManagers{
         clients: Arc<tokio::sync::RwLock<HashMap<u64, Sender<ClientActions>>>>,
-        client_topics: Arc<tokio::sync::RwLock<HashMap<u64, HashSet<u64>>>>,
+        topics_subscribers: Arc<tokio::sync::RwLock<HashMap<u64, HashSet<u64>>>>,
         clients_addresses: Arc<tokio::sync::RwLock<HashMap<u64, SocketAddr>>>,
         clients_structs: Arc<RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>>,
         b_running: Arc<bool>,
-        server_sender: Arc<UdpSocket>,
-        pings: Arc<Mutex<HashMap<u8, u128>>>,
+        server_sender: Arc<UdpSocket>
     },
     UpdateServerLastRequest{
         time: u128
@@ -55,11 +64,19 @@ pub enum ClientActions {
         current_time: u128, // Server time when the request has been received
         pings_ref: Arc<Mutex<HashMap<u8, u128>>>, // contain all ping request sent by the server
     },
+    HandleTopicRequest{
+        server_socket: Arc<UdpSocket>,
+        buffer: [u8; 1024],
+        topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+        root_ref: Arc<RwLock<Topic>>,
+        client_sender: Sender<ClientActions>
+    },
     HandleDisconnect{
-        client_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+        topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
         clients_ref: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
         clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-        clients_structs: Arc<RwLock<HashMap<u64, Arc<tokio::sync::Mutex<Client>>>>>,
+        clients_structs: Arc<RwLock<HashMap<u64, Arc<Mutex<Client>>>>>,
+        client_sender: Sender<ClientActions>
     }
 }
 
