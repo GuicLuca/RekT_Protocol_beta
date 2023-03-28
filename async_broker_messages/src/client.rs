@@ -133,9 +133,11 @@ impl Client {
                     } => {
                         let data_rq = RQ_Data::from(buffer.as_ref());
 
-                        if data_rq.sequence_number < *self.requests_counter.read().await.unwrap().get(&data_rq.topic_id).unwrap() {
-                            log(Warning, DataHandler, format!("Client {} sent a data with a sequence number lower than the last one", client_id), config.clone());
-                            return;
+                        if self.requests_counter.read().await.unwrap().contains_key(&data_rq.topic_id) {
+                            if data_rq.sequence_number < *self.requests_counter.read().await.unwrap().get(&data_rq.topic_id).unwrap() {
+                                log(Warning, DataHandler, format!("Client {} sent a data with a sequence number lower than the last one", client_id), config.clone());
+                                return;
+                            }
                         }
 
                         let mut interested_clients = {
