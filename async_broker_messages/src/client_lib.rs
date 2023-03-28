@@ -40,7 +40,6 @@ pub enum ClientActions {
     HandleData {
         sender: Arc<UdpSocket>,
         buffer: [u8; 1024],
-        client_id: u64,
         clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
         clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
         clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,

@@ -125,7 +125,6 @@ impl Client {
                     HandleData {
                         sender,
                         buffer,
-                        client_id,
                         clients,
                         clients_addresses,
                         clients_topics,
@@ -135,7 +134,7 @@ impl Client {
 
                         if self.requests_counter.read().await.unwrap().contains_key(&data_rq.topic_id) {
                             if data_rq.sequence_number < *self.requests_counter.read().await.unwrap().get(&data_rq.topic_id).unwrap() {
-                                log(Warning, DataHandler, format!("Client {} sent a data with a sequence number lower than the last one", client_id), config.clone());
+                                log(Warning, DataHandler, format!("Client {} sent a data with a sequence number lower than the last one", self.id), config.clone());
                                 return;
                             }
                         }
@@ -175,12 +174,15 @@ impl Client {
 
                     // This command compute the ping and save the result in the local client object
                     HandlePong { ping_id, current_time, pings_ref } => {
-                        // 1 - get the mutable ref of all ping request
-                        let mut pings_ref_mut = pings_ref.lock().await;
-                        // 2 - compute the round trip
-                        let round_trip = (current_time - pings_ref_mut.get(&ping_id).unwrap()) / 2;
-                        // 3 - free the ping_id
-                        pings_ref_mut.remove(&ping_id);
+                        let round_trip;
+                        {
+                            // 1 - get the mutable ref of all ping request
+                            let mut pings_ref_mut = pings_ref.lock().await;
+                            // 2 - compute the round trip
+                            round_trip = (current_time - pings_ref_mut.get(&ping_id).unwrap()) / 2;
+                            // 3 - free the ping_id
+                            pings_ref_mut.remove(&ping_id);
+                        }
                         // 4 - set the ping for the client
                         self.ping = round_trip;
                         log(Info, ClientManager, format!("There is {}ms of ping between {} and the server", round_trip, self.id), config.clone());
