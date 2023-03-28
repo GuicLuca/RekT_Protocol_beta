@@ -133,6 +133,11 @@ impl Client {
                     } => {
                         let data_rq = RQ_Data::from(buffer.as_ref());
 
+                        if data_rq.sequence_number < *self.requests_counter.read().await.unwrap().get(&data_rq.topic_id).unwrap() {
+                            log(Warning, DataHandler, format!("Client {} sent a data with a sequence number lower than the last one", client_id), config.clone());
+                            return;
+                        }
+
                         let mut interested_clients = {
                             let read_client_topics = clients_topics.read().await;
                             if !read_client_topics.contains_key(&data_rq.topic_id) {
@@ -162,6 +167,8 @@ impl Client {
                             });
                             log(Info, DataHandler, format!("Sent {} bytes to {}", result, client_addr), config.clone());
                         }
+
+                        self.requests_counter.write().await.unwrap().insert(data_rq.topic_id, data_rq.sequence_number);
                     }
 
                     // This command compute the ping and save the result in the local client object
