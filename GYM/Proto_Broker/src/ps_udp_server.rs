@@ -61,7 +61,7 @@ impl Server {
     }
 
     pub fn invalid_msg_type(&self, src: &SocketAddr) {
-        println!("recieved invalid packet from {}", src.ip())
+        println!("received invalid packet from {}", src.ip())
     }
 
     fn already_connected(&self, ip: &IpAddr) -> (bool, u64) {
@@ -192,7 +192,7 @@ impl Server {
                             self.invalid_msg_type(&src)
                         }
                         MessageType::UNKNOWN => {
-                            println!("recieved unknown packet from {}", src.ip())
+                            println!("received unknown packet from {}", src.ip())
                         }
                     }
 

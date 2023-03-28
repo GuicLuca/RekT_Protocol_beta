@@ -59,7 +59,7 @@ pub struct Config {
 impl Config {
     pub fn new() -> Self {
         // 1 - List of path to config files
-        let config_filepaths: [&str; 2] = [
+        let config_filepath: [&str; 2] = [
             "./config.toml",
             "./src/config.toml",
         ];
@@ -67,7 +67,7 @@ impl Config {
         // 2 - Loop through each config file to get the first valid one
         let mut content: String = "".to_owned();
 
-        for filepath in config_filepaths {
+        for filepath in config_filepath {
             let result: Result<String, IoError> = fs::read_to_string(filepath);
 
             if result.is_ok() {

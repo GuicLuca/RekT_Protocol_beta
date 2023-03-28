@@ -5,12 +5,13 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Error;
 use std::net::SocketAddr;
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::net::UdpSocket;
 
+use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, oneshot, RwLock};
 use tokio::sync::mpsc::Sender;
+
 use crate::client::Client;
 use crate::client_lib::ClientActions::Get;
 use crate::config::Config;
@@ -35,6 +36,15 @@ pub enum ClientActions {
     Get {
         key: String,
         resp: Responder<u128>,
+    },
+    HandleData {
+        sender: Arc<UdpSocket>,
+        buffer: [u8; 1024],
+        client_id: u64,
+        clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
+        clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+        clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+        config: Arc<Config>,
     },
     GetTopics{
         resp: Responder<HashSet<u64>>
@@ -110,7 +120,7 @@ pub async fn client_has_sent_life_sign(
     let last_client_request = rx.await.unwrap().unwrap();
 
     let should_have_give_life_sign = now - (config.heart_beat_period*1000 ) as u128;
-    log(Warning, ClientManager, format!("Calcule du temps : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign), config);
+    log(Warning, ClientManager, format!("Calcul du temps : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign), config);
     // return true if the last request is sooner than the current time minus the heartbeat_period
     return last_client_request >= should_have_give_life_sign;
 }

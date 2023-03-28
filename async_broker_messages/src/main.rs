@@ -5,14 +5,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use local_ip_address::local_ip;
 use tokio::{join, net::UdpSocket};
-use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 use crate::client::Client;
 use crate::client_lib::{ClientActions, now_ms};
-use crate::client_lib::ClientActions::{HandleDisconnect, HandlePong, HandleTopicRequest, StartManagers, UpdateClientLastRequest};
+use crate::client_lib::ClientActions::{HandleData, HandleDisconnect, HandlePong, HandleTopicRequest, StartManagers, UpdateClientLastRequest};
 use crate::config::Config;
 use crate::config::LogLevel::*;
 use crate::datagram::*;
@@ -109,7 +109,7 @@ async fn main() {
     log(Info, Other, format!("Server is running ..."), config.clone());
 
 
-    join!(datagram_handler, ping_sender);
+    join!(datagram_handler, ping_sender).0.expect("Error while joining the tasks");
 
     b_running = Arc::from(false);
     log(Info, Other, format!("Server has stopped ... Running status : {}", b_running), config.clone());
@@ -171,7 +171,7 @@ async fn datagrams_handler(
                     };
                     let cmd = UpdateClientLastRequest { time: now_ms() };
                     tokio::spawn(async move {
-                        client_sender.send(cmd).await;
+                        client_sender.send(cmd).await.expect("Failed to send command to client handler (UpdateClientLastRequest)");
                     });
                 }
 
@@ -283,17 +283,32 @@ async fn datagrams_handler(
                         let config_ref = config.clone();
                         let topics_subscribers_ref = topics_subscribers.clone();
                         let clients_ref = clients.clone();
-                        tokio::spawn(async move {
-                            handle_data(
-                                receiver_ref,
-                                buf,
-                                client_id,
-                                clients_ref,
-                                clients_addresses_ref,
-                                topics_subscribers_ref,
-                                config_ref,
-                            ).await;
-                        });
+                        // tokio::spawn(async move {
+                        //     handle_data(
+                        //         receiver_ref,
+                        //         buf,
+                        //         client_id,
+                        //         clients_ref,
+                        //         clients_addresses_ref,
+                        //         topics_subscribers_ref,
+                        //         config_ref,
+                        //     ).await;
+                        // });
+                        let cmd = HandleData {
+                            sender: receiver_ref,
+                            buffer: buf,
+                            client_id,
+                            clients: clients_ref,
+                            clients_addresses: clients_addresses_ref,
+                            config: config_ref,
+                            clients_topics: topics_subscribers_ref,
+                        };
+                        let client_sender = {
+                            let map = clients.read().await;
+                            map.get(&client_id).unwrap().clone()
+                        };
+                        client_sender.send(cmd).await.expect("Failed to send HandleData command to client manager");
+
                     }
                     MessageType::OPEN_STREAM => {
                         // 4.3 - A user is trying to open a new stream
@@ -393,47 +408,47 @@ async fn datagrams_handler(
     }
 }
 
-async fn handle_data(
-    sender: Arc<UdpSocket>,
-    buffer: [u8; 1024],
-    client_id: u64,
-    clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
-    clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-    clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
-    config: Arc<Config>,
-) {
-    let data_rq = RQ_Data::from(buffer.as_ref());
-
-    let mut interested_clients = {
-        let read_client_topics = clients_topics.read().await;
-        if !read_client_topics.contains_key(&data_rq.topic_id) {
-            log(Warning, DataHandler, format!("Topic {} doesn't exist", data_rq.topic_id), config.clone());
-            return;
-        }
-
-        read_client_topics.get(&data_rq.topic_id).unwrap().clone()
-    };
-
-
-    interested_clients.remove(&client_id);
-    for client in interested_clients {
-        let client_sender = {
-            let map = clients.read().await;
-            map.get(&client).unwrap().clone()
-        };
-        let data = RQ_Data::new(, data_rq.topic_id, data_rq.data.clone());
-        let data = data.as_bytes();
-        let client_addr = {
-            // use closure to reduce the lock lifetime
-            *clients_addresses.read().await.get(&client).unwrap()
-        };
-        let result = sender.send_to(&data, client_addr).await.unwrap();
-        tokio::spawn(async move {
-            save_server_last_request_sent(client_sender, client_id).await;
-        });
-        log(Info, DataHandler, format!("Sent {} bytes to {}", result, client_addr), config.clone());
-    }
-}
+// async fn handle_data(
+//     sender: Arc<UdpSocket>,
+//     buffer: [u8; 1024],
+//     client_id: u64,
+//     clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
+//     clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+//     clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+//     config: Arc<Config>,
+// ) {
+//     let data_rq = RQ_Data::from(buffer.as_ref());
+//
+//     let mut interested_clients = {
+//         let read_client_topics = clients_topics.read().await;
+//         if !read_client_topics.contains_key(&data_rq.topic_id) {
+//             log(Warning, DataHandler, format!("Topic {} doesn't exist", data_rq.topic_id), config.clone());
+//             return;
+//         }
+//
+//         read_client_topics.get(&data_rq.topic_id).unwrap().clone()
+//     };
+//
+//
+//     interested_clients.remove(&client_id);
+//     for client in interested_clients {
+//         let client_sender = {
+//             let map = clients.read().await;
+//             map.get(&client).unwrap().clone()
+//         };
+//         let data = RQ_Data::new(data_rq.sequence_number, data_rq.topic_id, data_rq.data.clone());
+//         let data = data.as_bytes();
+//         let client_addr = {
+//             // use closure to reduce the lock lifetime
+//             *clients_addresses.read().await.get(&client).unwrap()
+//         };
+//         let result = sender.send_to(&data, client_addr).await.unwrap();
+//         tokio::spawn(async move {
+//             save_server_last_request_sent(client_sender, client_id).await;
+//         });
+//         log(Info, DataHandler, format!("Sent {} bytes to {}", result, client_addr), config.clone());
+//     }
+// }
 
 /** TODO : doc
 This method send ping request to every connected clients

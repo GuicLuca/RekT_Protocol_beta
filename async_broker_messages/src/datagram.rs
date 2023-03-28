@@ -417,7 +417,7 @@ impl From<&[u8]> for RQ_Heartbeat {
     }
 }
 
-//===== Sent to request a Heartbeat if a pear do not recive his
+//===== Sent to request a Heartbeat if a pear do not receive his
 // normal heartbeat.
 pub struct RQ_Heartbeat_Request {
     pub message_type: MessageType,
@@ -657,7 +657,7 @@ impl RQ_TopicRequest_NACK {
 
 impl From<&[u8]> for RQ_TopicRequest_NACK {
     fn from(buffer: &[u8]) -> Self {
-        let size = Size::new(u16::from_le_bytes(get_bytes_from_slice(buffer, 2, 3).try_into().expect("Bad Size recieved")));
+        let size = Size::new(u16::from_le_bytes(get_bytes_from_slice(buffer, 2, 3).try_into().expect("Bad Size received")));
         RQ_TopicRequest_NACK {
             message_type: MessageType::TOPIC_REQUEST_ACK,
             status: TopicsResponse::from(buffer.get(1).unwrap().clone()),
@@ -671,22 +671,22 @@ impl From<&[u8]> for RQ_TopicRequest_NACK {
 pub struct RQ_Data{
     pub message_type: MessageType, // 1 byte
     pub size: Size, // 2 bytes (u16)
-    pub packet_number: u8, // 1 byte (u8)
+    pub sequence_number: u32, // 4 bytes (u32)
     pub topic_id: u64, // 8 bytes (u64)
     pub data: Vec<u8> // size bytes
 }
 impl RQ_Data {
 
-    pub fn new(packet_number: u8, topic_id: u64, payload: Vec<u8>)-> RQ_Data {
+    pub fn new(sequence_number: u32, topic_id: u64, payload: Vec<u8>)-> RQ_Data {
         let size = Size::new((payload.len() + 8) as u16); // payload length + 8 for topic id
-        RQ_Data { message_type: MessageType::DATA, size, packet_number, topic_id, data: payload }
+        RQ_Data { message_type: MessageType::DATA, size, sequence_number, topic_id, data: payload }
     }
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
         let mut bytes = [u8::from(self.message_type)].to_vec();
         bytes.append(&mut self.size.size.to_le_bytes().to_vec());
-        bytes.append(&mut self.packet_number.to_le_bytes().to_vec());
+        bytes.append(&mut self.sequence_number.to_le_bytes().to_vec());
         bytes.append(&mut self.topic_id.to_le_bytes().to_vec());
         bytes.append(&mut self.data.clone());
 
@@ -697,14 +697,14 @@ impl RQ_Data {
 impl From<&[u8]> for RQ_Data {
     fn from(buffer: &[u8]) -> Self {
         let size = Size::new(u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap()));
-        let data_end = 12 + (size.size - 8) as usize;
+        let data_end = 15 + (size.size - 8) as usize;
 
         RQ_Data {
             message_type: MessageType::DATA,
             size,
-            packet_number: buffer[3],
-            topic_id: u64::from_le_bytes(buffer[3..].split_at(std::mem::size_of::<u64>()).0.try_into().unwrap()),
-            data: buffer[12..data_end].to_vec(),
+            sequence_number: u32::from_le_bytes(buffer[3..].split_at(std::mem::size_of::<u32>()).0.try_into().unwrap()),
+            topic_id: u64::from_le_bytes(buffer[7..].split_at(std::mem::size_of::<u64>()).0.try_into().unwrap()),
+            data: buffer[15..data_end].to_vec(),
         }
     }
 }

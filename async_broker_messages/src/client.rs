@@ -6,10 +6,11 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration};
+use std::time::Duration;
+
 use tokio::net::UdpSocket;
-use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, oneshot};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::sleep;
 
 use crate::client_lib::{client_has_sent_life_sign, ClientActions, now_ms};
@@ -37,7 +38,7 @@ pub struct Client {
     // Topics
     topics: RwLock<HashSet<u64>>,
     // Contain each subscribed topic id
-    requests_counter: RwLock<HashMap<u64, u8>>, // Contain the id of the last request on a topic for scheduling
+    requests_counter: RwLock<HashMap<u64, u32>>, // Contain the id of the last request on a topic for scheduling
 }
 
 impl Client {
@@ -118,6 +119,48 @@ impl Client {
                                 resp.send(Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Bad key requested : \"{}\"", key))))
                                     .expect("Error while sending response");
                             }
+                        }
+                    }
+
+                    HandleData {
+                        sender,
+                        buffer,
+                        client_id,
+                        clients,
+                        clients_addresses,
+                        clients_topics,
+                        config,
+                    } => {
+                        let data_rq = RQ_Data::from(buffer.as_ref());
+
+                        let mut interested_clients = {
+                            let read_client_topics = clients_topics.read().await;
+                            if !read_client_topics.contains_key(&data_rq.topic_id) {
+                                log(Warning, DataHandler, format!("Topic {} doesn't exist", data_rq.topic_id), config.clone());
+                                return;
+                            }
+
+                            read_client_topics.get(&data_rq.topic_id).unwrap().clone()
+                        };
+
+
+                        interested_clients.remove(&client_id);
+                        for client in interested_clients {
+                            let client_sender = {
+                                let map = clients.read().await;
+                                map.get(&client).unwrap().clone()
+                            };
+                            let data = RQ_Data::new(data_rq.sequence_number, data_rq.topic_id, data_rq.data.clone());
+                            let data = data.as_bytes();
+                            let client_addr = {
+                                // use closure to reduce the lock lifetime
+                                *clients_addresses.read().await.get(&client).unwrap()
+                            };
+                            let result = sender.send_to(&data, client_addr).await.unwrap();
+                            tokio::spawn(async move {
+                                save_server_last_request_sent(client_sender, client_id).await;
+                            });
+                            log(Info, DataHandler, format!("Sent {} bytes to {}", result, client_addr), config.clone());
                         }
                     }
 

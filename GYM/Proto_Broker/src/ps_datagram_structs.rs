@@ -407,7 +407,7 @@ impl From<&[u8]> for RQ_Heartbeat {
     }
 }
 
-//===== Sent to request a Heartbeat if a pear do not recive his
+//===== Sent to request a Heartbeat if a pear do not receive his
 // normal heartbeat.
 pub struct RQ_Heartbeat_Request {
     pub message_type: MessageType,
@@ -647,7 +647,7 @@ impl RQ_TopicRequest_NACK {
 
 impl From<&[u8]> for RQ_TopicRequest_NACK {
     fn from(buffer: &[u8]) -> Self {
-        let size = Size::new(u16::from_le_bytes(get_bytes_from_slice(buffer, 2, 3).try_into().expect("Bad Size recieved")));
+        let size = Size::new(u16::from_le_bytes(get_bytes_from_slice(buffer, 2, 3).try_into().expect("Bad Size received")));
         RQ_TopicRequest_NACK {
             message_type: MessageType::TOPIC_REQUEST_ACK,
             status: TopicsResponse::from(buffer.get(1).unwrap().clone()),

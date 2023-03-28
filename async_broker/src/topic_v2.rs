@@ -60,7 +60,7 @@ impl TopicV2 {
         for topic_name in topic_names {
             topic_hash = topic_hash + "/" + topic_name;
             if topic_name.is_empty() {
-                return Err("il s'est passé une dingeureie (topic_name is empty)".to_string());
+                return Err("il s'est passé une dinguereie (topic_name is empty)".to_string());
             }
             let topic_id = custom_string_hash(&topic_hash);
             //     {

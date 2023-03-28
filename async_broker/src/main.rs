@@ -394,7 +394,7 @@ async fn heartbeat_checker(
         // 3 - waite for the heartbeat period
         sleep(Duration::from_secs(config.heart_beat_period as u64)).await;
 
-        // Do the following in a special code space to lock the "has_sent_heartbeat" value the same before reseting it.
+        // Do the following in a special code space to lock the "has_sent_heartbeat" value the same before reset-ing it.
         // It prevent overriding a new incoming Heartbeat request.
         let has_sent_heartbeat = {
             let mut write_client_hshb = client_has_heartbeat_ref.write().await;

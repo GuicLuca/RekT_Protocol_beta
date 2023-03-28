@@ -25,8 +25,8 @@ impl Client {
         match message_type {
             MessageType::CONNECT_ACK => {
                 println!("Connect_Ack received !");
-                let is_succesfull = ConnectStatus::from(*buffer.to_vec().get(1).unwrap());
-                match is_succesfull {
+                let is_successful = ConnectStatus::from(*buffer.to_vec().get(1).unwrap());
+                match is_successful {
                     ConnectStatus::SUCCESS => {
 
                         // Copy a part of the buffer to an array to convert it to u64
