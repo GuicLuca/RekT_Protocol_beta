@@ -38,7 +38,7 @@ pub struct Client {
     // Topics
     topics: RwLock<HashSet<u64>>,
     // Contain each subscribed topic id
-    requests_counter: RwLock<HashMap<u64, u32>>, // Contain the id of the last request on a topic for scheduling
+    requests_counter: Arc<RwLock<HashMap<u64, u32>>>, // Contain the id of the last request on a topic for scheduling
 }
 
 impl Client {
@@ -56,7 +56,7 @@ impl Client {
             last_request_from_server: RwLock::from(0),
             ping: 0,
             topics: RwLock::from(HashSet::new()),
-            requests_counter: RwLock::from(HashMap::new()),
+            requests_counter: Arc::new(RwLock::from(HashMap::new())),
         }
     }
 
@@ -130,46 +130,59 @@ impl Client {
                         clients_topics,
                         config,
                     } => {
-                        let data_rq = RQ_Data::from(buffer.as_ref());
-
-                        if self.requests_counter.read().await.unwrap().contains_key(&data_rq.topic_id) {
-                            if data_rq.sequence_number < *self.requests_counter.read().await.unwrap().get(&data_rq.topic_id).unwrap() {
-                                log(Warning, DataHandler, format!("Client {} sent a data with a sequence number lower than the last one", self.id), config.clone());
-                                return;
+                        let requests_counter_ref = self.requests_counter.clone();
+                        let client_id = self.id;
+                        let config_ref = config.clone();
+                        tokio::spawn(async move {
+                            // 1 - Check if the request is newer than the previous one
+                            let data_rq = RQ_Data::from(buffer.as_ref());
+                            {
+                                let mut write_rq_counter_ref = requests_counter_ref.write().unwrap();
+                                if write_rq_counter_ref.contains_key(&data_rq.topic_id) {
+                                    if data_rq.sequence_number < *write_rq_counter_ref.get(&data_rq.topic_id).unwrap()
+                                    && data_rq.sequence_number > 50 // this condition allow circle id (id 0..49 will override MAX_ID)
+                                        {
+                                        // Request is out-dated
+                                        log(Warning, DataHandler, format!("Client {} sent a data with a sequence number lower than the last one", client_id), config_ref.clone());
+                                        return;
+                                    }else{
+                                        // New request, update the last request id
+                                        write_rq_counter_ref.insert(data_rq.topic_id, data_rq.sequence_number);
+                                    }
+                                }
                             }
-                        }
 
-                        let mut interested_clients = {
-                            let read_client_topics = clients_topics.read().await;
-                            if !read_client_topics.contains_key(&data_rq.topic_id) {
-                                log(Warning, DataHandler, format!("Topic {} doesn't exist", data_rq.topic_id), config.clone());
-                                return;
+
+                            let mut interested_clients = {
+                                let read_client_topics = clients_topics.read().await;
+                                if !read_client_topics.contains_key(&data_rq.topic_id) {
+                                    log(Warning, DataHandler, format!("Topic {} doesn't exist", data_rq.topic_id), config_ref.clone());
+                                    return;
+                                }
+
+                                read_client_topics.get(&data_rq.topic_id).unwrap().clone()
+                            };
+
+
+                            interested_clients.remove(&client_id);
+                            for client in interested_clients {
+                                let client_sender = {
+                                    let map = clients.read().await;
+                                    map.get(&client).unwrap().clone()
+                                };
+                                let data = RQ_Data::new(data_rq.sequence_number, data_rq.topic_id, data_rq.data.clone());
+                                let data = data.as_bytes();
+                                let client_addr = {
+                                    // use closure to reduce the lock lifetime
+                                    *clients_addresses.read().await.get(&client).unwrap()
+                                };
+                                let result = sender.send_to(&data, client_addr).await.unwrap();
+                                tokio::spawn(async move {
+                                    save_server_last_request_sent(client_sender, client_id).await;
+                                });
+                                log(Info, DataHandler, format!("Sent {} bytes to {}", result, client_addr), config_ref.clone());
                             }
-
-                            read_client_topics.get(&data_rq.topic_id).unwrap().clone()
-                        };
-
-
-                        interested_clients.remove(&client_id);
-                        for client in interested_clients {
-                            let client_sender = {
-                                let map = clients.read().await;
-                                map.get(&client).unwrap().clone()
-                            };
-                            let data = RQ_Data::new(data_rq.sequence_number, data_rq.topic_id, data_rq.data.clone());
-                            let data = data.as_bytes();
-                            let client_addr = {
-                                // use closure to reduce the lock lifetime
-                                *clients_addresses.read().await.get(&client).unwrap()
-                            };
-                            let result = sender.send_to(&data, client_addr).await.unwrap();
-                            tokio::spawn(async move {
-                                save_server_last_request_sent(client_sender, client_id).await;
-                            });
-                            log(Info, DataHandler, format!("Sent {} bytes to {}", result, client_addr), config.clone());
-                        }
-
-                        self.requests_counter.write().await.unwrap().insert(data_rq.topic_id, data_rq.sequence_number);
+                        });
                     }
 
                     // This command compute the ping and save the result in the local client object

@@ -3,13 +3,11 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, Mutex, RwLock, RwLockReadGuard};
+use tokio::sync::{Mutex, RwLock, RwLockReadGuard};
 use tokio::sync::mpsc::Sender;
 
-use crate::client::Client;
 use crate::client_lib::{ClientActions, now_ms};
-use crate::client_lib::ClientActions::{StartManagers, UpdateServerLastRequest};
+use crate::client_lib::ClientActions::{UpdateServerLastRequest};
 use crate::config::{Config, LogLevel};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
