@@ -206,7 +206,7 @@ async fn datagrams_handler(
                                 // 3.1 - Create a chanel to exchange commands through
                                 let (sender, receiver) = mpsc::channel::<ClientActions>(32);
                                 let new_client = Client::new(uuid, src, receiver);
-                                let new_client_arc: Arc<Mutex<Client>> = Arc::new(tokio::sync::Mutex::new(new_client)); // clone new_client and wrap in Arc and Mutex
+                                let new_client_arc: Arc<Mutex<Client>> = Arc::new(Mutex::new(new_client)); // clone new_client and wrap in Arc and Mutex
 
                                 // 3.2 - fill server arrays to keep in memory the connection
                                 {
