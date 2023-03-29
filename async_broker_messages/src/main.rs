@@ -171,7 +171,12 @@ async fn datagrams_handler(
                     };
                     let cmd = UpdateClientLastRequest { time: now_ms() };
                     tokio::spawn(async move {
-                        client_sender.send(cmd).await.expect("Failed to send command to client handler (UpdateClientLastRequest)");
+                        match client_sender.send(cmd).await{
+                            Ok(_)=>{}
+                            Err(_)=> {
+                                return;
+                            }
+                        };
                     });
                 }
 
@@ -251,7 +256,12 @@ async fn datagrams_handler(
 
                                 let cmd_sender = sender.clone();
                                 tokio::spawn(async move {
-                                    cmd_sender.send(cmd).await.expect("Failed to send StartManagers command to client manager");
+                                    match cmd_sender.send(cmd).await{
+                                        Ok(_)=>{}
+                                        Err(_)=> {
+                                            return;
+                                        }
+                                    };
                                 });
 
                                 // init his ping with this request:
@@ -289,8 +299,12 @@ async fn datagrams_handler(
                             let map = clients.read().await;
                             map.get(&client_id).unwrap().clone()
                         };
-                        client_sender.send(cmd).await.expect("Failed to send HandleData command to client manager");
-
+                        match client_sender.send(cmd).await{
+                            Ok(_)=>{}
+                            Err(_)=> {
+                                return;
+                            }
+                        };
                     }
                     MessageType::OPEN_STREAM => {
                         // 4.3 - A user is trying to open a new stream
@@ -317,7 +331,12 @@ async fn datagrams_handler(
                             map.get(&client_id).unwrap().clone()
                         };
                         tokio::spawn(async move {
-                            client_sender.send(cmd).await.expect("Failed to send HandleDisconnect command to client manager");
+                            match client_sender.send(cmd).await{
+                                Ok(_)=>{}
+                                Err(_)=> {
+                                    return;
+                                }
+                            };
                         });
                     }
                     MessageType::HEARTBEAT => {
@@ -349,7 +368,12 @@ async fn datagrams_handler(
                         };
 
                         tokio::spawn(async move {
-                            client_sender.send(cmd).await.expect("Failed to send HandleTopicRequest command to client manager");
+                            match client_sender.send(cmd).await{
+                                Ok(_)=>{}
+                                Err(_)=> {
+                                    return;
+                                }
+                            };
                         });
                     }
                     MessageType::PONG => {
@@ -371,7 +395,12 @@ async fn datagrams_handler(
                         // send the command :
                         let clients_ref = clients.clone();
                         tokio::spawn(async move {
-                            clients_ref.read().await.get(&client_id).unwrap().send(cmd).await.expect(&*format!("Failed to send the handle pong command to the client {}", client_id));
+                            match clients_ref.read().await.get(&client_id).unwrap().send(cmd).await{
+                                Ok(_)=>{}
+                                Err(_)=> {
+                                    return;
+                                }
+                            };
                         });
                     }
                     MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING => {

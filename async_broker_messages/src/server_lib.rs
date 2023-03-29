@@ -145,7 +145,12 @@ pub async fn save_server_last_request_sent(
 ){
     let cmd = UpdateServerLastRequest {time: now_ms()};
     tokio::spawn(async move {
-        sender.send(cmd).await.expect(&*format!("Failed to send the UpdateServerLastRequest command to the client {}", client_id));
+        match sender.send(cmd).await {
+            Ok(_)=>{}
+            Err(_)=> {
+                return;
+            }
+        };
     });
 }
 

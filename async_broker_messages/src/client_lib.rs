@@ -115,7 +115,12 @@ pub async fn client_has_sent_life_sign(
     };
 
 
-    client_sender.send(cmd).await.unwrap();
+    match client_sender.send(cmd).await {
+        Ok(_)=>{}
+        Err(_)=> {
+            return false;
+        }
+    }
     let last_client_request = rx.await.unwrap().unwrap();
 
     let should_have_give_life_sign = now - (config.heart_beat_period*1000 ) as u128;

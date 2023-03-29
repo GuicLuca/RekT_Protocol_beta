@@ -29,8 +29,8 @@ pub struct Client {
     receiver: Receiver<ClientActions>,
 
     // Connection checker
-    last_request_from_client: RwLock<u128>,
-    last_request_from_server: RwLock<u128>,
+    last_request_from_client: u128,
+    last_request_from_server: u128,
 
     // Timestamp of the last request received from this user
     ping: u128, // client ping in ms
@@ -52,8 +52,8 @@ impl Client {
             id,
             socket,
             receiver,
-            last_request_from_client: RwLock::from(now_ms()),
-            last_request_from_server: RwLock::from(0),
+            last_request_from_client: now_ms(),
+            last_request_from_server: 0,
             ping: 0,
             topics: RwLock::from(HashSet::new()),
             requests_counter: Arc::new(RwLock::from(HashMap::new())),
@@ -63,25 +63,18 @@ impl Client {
     /**
      * This method save the current time as the last client request received
      */
-    pub fn save_client_request_timestamp(&mut self, time: u128, config: Arc<Config>) {
-        // Get the writ access to the value
+    pub async fn save_client_request_timestamp(&mut self, time: u128, config: Arc<Config>) {
         log(Info, ClientManager, format!("Last client request time updated for client {}", self.id), config.clone());
-
-        let mut last_request_mut = self.last_request_from_client.write().unwrap();
-        // Update it at now
-        *last_request_mut = time;
+        self.last_request_from_client = time;
     }
 
     /**
      * This method save the current time as the last request sent from the server to this client
      */
-    pub fn save_server_request_timestamp(&mut self, time: u128, config: Arc<Config>) {
+    pub async fn save_server_request_timestamp(&mut self, time: u128, config: Arc<Config>) {
         // Get the writ access to the value
         log(Info, ClientManager, format!("Last server request time updated for client {}", self.id), config.clone());
-
-        let mut last_request_mut = self.last_request_from_server.write().unwrap();
-        // Update it at now
-        *last_request_mut = time;
+        self.last_request_from_server = time;
     }
 
     /**
@@ -109,11 +102,7 @@ impl Client {
                                 resp.send(Ok(res as u128)).expect("Error while sending response");
                             }
                             "last_request_from_client" => {
-                                let res = {
-                                    *self.last_request_from_client.read().unwrap()
-                                };
-                                // Ignore errors
-                                resp.send(Ok(res)).expect("Error while sending response");
+                                resp.send(Ok(self.last_request_from_client)).expect("Error while sending response");
                             }
                             _ => {
                                 resp.send(Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Bad key requested : \"{}\"", key))))
@@ -203,11 +192,11 @@ impl Client {
 
                     // The two following command update last interaction in the client and server sens
                     UpdateServerLastRequest { time } => {
-                        self.save_server_request_timestamp(time, config.clone());
+                        self.save_server_request_timestamp(time, config.clone()).await;
                     }
 
                     UpdateClientLastRequest { time } => {
-                        self.save_client_request_timestamp(time, config.clone());
+                        self.save_client_request_timestamp(time, config.clone()).await;
                     }
 
                     // This command clear client data and stop client's task
@@ -218,45 +207,39 @@ impl Client {
                         clients_structs,
                         client_sender
                     } => {
-                        let client_id = self.id.clone();
+                        /* need to remove from :
+                            1 - client_topic : remove the ic from every subscribed
+                            2 - clients_ref hashmap => will stop ping_sender task and heartbeat_checker task
+                            3 - clients_addresses => this address is now free for a new connection
+                        */
+                        // 1 - loops trough client_topics topics and remove the client from the topic
+                        let topic_ids: Vec<u64> = {
+                            self.topics.read().unwrap().iter().cloned().collect() // transform the hashset to a vec
+                        };
+
+                        // last used of the channel is done : close it to cancel all pending requests
+                        self.receiver.close();
+                        let id = self.id;
                         let config_ref = config.clone();
-                        tokio::spawn(async move {
-                            /* need to remove from :
-                                1 - client_topic : remove the ic from every subscribed
-                                2 - clients_ref hashmap => will stop ping_sender task and heartbeat_checker task
-                                3 - clients_addresses => this address is now free for a new connection
-                            */
-                            // 1 - loops trough client_topics topics and remove the client from the topic
-                            let topic_ids: Vec<u64> = {
-                                let (tx, rx) = oneshot::channel();
-                                let cmd = GetTopics { resp: tx };
-                                tokio::spawn(async move {
-                                    client_sender.send(cmd).await.expect("Error while sending command to client");
-                                });
-                                rx.await.unwrap().unwrap().iter().cloned().collect() // transform the hashset to a vec
-
-                                //let read_client_topics = topics_subscribers.read().await;
-                                //read_client_topics.keys().cloned().collect()
-                            };
-
+                        tokio::spawn(async move{
                             {
                                 let mut write_client_topics = topics_subscribers.write().await;
                                 for topic_id in topic_ids {
-                                    write_client_topics.get_mut(&topic_id).unwrap().remove(&client_id);
+                                    write_client_topics.get_mut(&topic_id).unwrap().remove(&id);
                                 }
                             }
 
                             // 2&3 - Remove the id from the server memory
                             {
-                                clients_ref.write().await.remove(&client_id);
+                                clients_ref.write().await.remove(&id);
                             }
                             {
-                                clients_addresses.write().await.remove(&client_id);
+                                clients_addresses.write().await.remove(&id);
                             }
                             {
-                                clients_structs.write().await.remove(&client_id);
+                                clients_structs.write().await.remove(&id);
                             }
-                            log(Info, Other, format!("Disconnection of client {}", client_id), config_ref);
+                            log(Info, Other, format!("Disconnection of client {}", id), config_ref.clone());
                         });
                     }
 
@@ -306,21 +289,21 @@ impl Client {
                                         Ok(topic_id) => {
                                             // Update topics_subscribers array
                                             {
-                                                topics_subscribers.write().await.entry(topic_id)
-                                                    .and_modify(|vec| {
-                                                        vec.insert(client_id);
-                                                    })
-                                                    .or_insert({
-                                                        let mut tmp = HashSet::new();
-                                                        tmp.insert(client_id);
-                                                        tmp
-                                                    });
+                                                let mut topics_sub_write = topics_subscribers.write().await;
+                                                let subscribers_set = topics_sub_write.entry(topic_id)
+                                                    .or_insert_with(||HashSet::new());
+                                                subscribers_set.insert(client_id);
                                             }
                                             // Add the new topic id to the client
                                             let cmd = AddSubscribedTopic { topic_id };
                                             let cmd_sender = client_sender.clone();
                                             tokio::spawn(async move {
-                                                cmd_sender.send(cmd).await.expect("Error while sending command to client");
+                                                match cmd_sender.send(cmd).await {
+                                                    Ok(_)=>{}
+                                                    Err(_)=> {
+                                                        return;
+                                                    }
+                                                };
                                             });
 
                                             result = server_socket.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_SUB).as_bytes(), client_addr).await;
@@ -348,7 +331,12 @@ impl Client {
                                     let cmd = RemoveSubscribedTopic { topic_id };
                                     let cmd_sender = client_sender.clone();
                                     tokio::spawn(async move {
-                                        cmd_sender.send(cmd).await.expect("Error while sending command to client");
+                                        match cmd_sender.send(cmd).await{
+                                            Ok(_)=>{}
+                                            Err(_)=> {
+                                                return;
+                                            }
+                                        };
                                     });
 
                                     result = server_socket.send_to(&RQ_TopicRequest_ACK::new(topic_id, TopicsResponse::SUCCESS_USUB).as_bytes(), client_addr).await;
@@ -467,7 +455,12 @@ pub async fn heartbeat_manager(
                     client_sender: sender_ref,
                 };
                 let sender_ref = client_sender.clone();
-                sender_ref.send(cmd).await.expect("Error while sending HandleDisconnect to client");
+                match sender_ref.send(cmd).await{
+                    Ok(_)=>{}
+                    Err(_)=> {
+                        return;
+                    }
+                };
             }
         } else {
             // 7bis - reset flags variable
