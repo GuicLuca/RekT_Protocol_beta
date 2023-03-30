@@ -18,7 +18,7 @@ use crate::config::Config;
 use crate::config::LogLevel::Warning;
 use crate::server_lib::log;
 use crate::server_lib::LogSource::ClientManager;
-use crate::topic::Topic;
+//use crate::topic::Topic;
 
 // ===================
 //   Common used type
@@ -42,12 +42,12 @@ pub enum ClientActions {
         buffer: [u8; 1024],
         clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
         clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-        clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+        topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
         config: Arc<Config>,
     },
-    GetTopics{
+    /*GetTopics{
         resp: Responder<HashSet<u64>>
-    },
+    },*/
     AddSubscribedTopic{
         topic_id: u64
     },
@@ -77,15 +77,13 @@ pub enum ClientActions {
         server_socket: Arc<UdpSocket>,
         buffer: [u8; 1024],
         topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
-        root_ref: Arc<RwLock<Topic>>,
         client_sender: Sender<ClientActions>
     },
     HandleDisconnect{
         topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
         clients_ref: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
         clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-        clients_structs: Arc<RwLock<HashMap<u64, Arc<Mutex<Client>>>>>,
-        client_sender: Sender<ClientActions>
+        clients_structs: Arc<RwLock<HashMap<u64, Arc<Mutex<Client>>>>>
     }
 }
 

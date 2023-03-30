@@ -18,12 +18,12 @@ use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::*;
 use crate::server_lib::LogSource::*;
-use crate::topic::Topic;
+//use crate::topic::Topic;
 
 mod config;
 mod datagram;
 mod server_lib;
-mod topic;
+//mod topic;
 mod client;
 mod client_lib;
 
@@ -44,11 +44,6 @@ async fn main() {
     let socket = UdpSocket::bind(format!("{}:{}", "0.0.0.0", config.port.parse::<i16>().unwrap())).await.unwrap();
     let socket_ref = Arc::new(socket);
 
-    // Root topic which can be subscribed by clients
-    // Every topics have sub topic to them, you can go through each one like in a tree
-    let root = RwLock::new(Topic::new(1, "/".to_string())); // default root topics is "/"
-    let root_ref = Arc::new(root);
-
     // List of clients represented by their address and their ID
     let clients: RwLock<HashMap<u64, Sender<ClientActions>>> = RwLock::new(HashMap::default()); // <Client ID, Sender> -> the sender is used to sent command through the mpsc channels
     let clients_ref = Arc::new(clients);
@@ -63,6 +58,11 @@ async fn main() {
 
     // List of topic subscribers
     let topics_subscribers_ref: Arc<RwLock<HashMap<u64, HashSet<u64>>>> = Arc::new(RwLock::new(HashMap::default())); // <Topic ID, [Clients ID]>
+
+    // Root topic which can be subscribed by clients
+    // Every topics have sub topic to them, you can go through each one like in a tree
+    //let objects_topic: Arc<RwLock<HashMap<u64, HashSet<u64>>>> = Arc::new(RwLock::new(HashMap::new()));
+
 
     log(Info, Other, format!("Server variables successfully initialized"), config.clone());
 
@@ -96,7 +96,6 @@ async fn main() {
             datagram_socket,
             datagram_clients,
             datagram_clients_address,
-            root_ref.clone(),
             datagram_pings,
             datagram_b_running,
             topics_subscribers_ref.clone(),
@@ -132,7 +131,6 @@ async fn datagrams_handler(
     receiver: Arc<UdpSocket>,
     clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
     clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-    root: Arc<RwLock<Topic>>,
     pings: Arc<Mutex<HashMap<u8, u128>>>,
     b_running: Arc<bool>,
     topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
@@ -270,7 +268,7 @@ async fn datagrams_handler(
 
                             let sslrs_sender = sender.clone();
                             tokio::spawn(async move {
-                                save_server_last_request_sent(sslrs_sender, uuid).await;
+                                save_server_last_request_sent(sslrs_sender).await;
                             });
                             match result {
                                 Ok(bytes) => {
@@ -293,7 +291,7 @@ async fn datagrams_handler(
                             clients: clients.clone(),
                             clients_addresses: clients_addresses.clone(),
                             config: config.clone(),
-                            clients_topics: topics_subscribers.clone(),
+                            topics_subscribers: topics_subscribers.clone(),
                         };
                         let client_sender = {
                             let map = clients.read().await;
@@ -314,16 +312,11 @@ async fn datagrams_handler(
                         // 4.4 - A user is trying to shutdown the connexion with the server
                         log(Info, DatagramsHandler, format!("{} is trying to shutdown the connexion with the server", client_id), config.clone());
 
-                        let client_sender = {
-                            let map = clients.read().await;
-                            map.get(&client_id).unwrap().clone()
-                        };
                         let cmd = HandleDisconnect {
                             topics_subscribers: topics_subscribers.clone(),
                             clients_ref: clients.clone(),
                             clients_addresses: clients_addresses.clone(),
-                            clients_structs: clients_structs.clone(),
-                            client_sender,
+                            clients_structs: clients_structs.clone()
                         };
 
                         let client_sender = {
@@ -363,7 +356,6 @@ async fn datagrams_handler(
                             server_socket: receiver.clone(),
                             buffer: buf,
                             topics_subscribers: topics_subscribers.clone(),
-                            root_ref: root.clone(),
                             client_sender: client_sender.clone(),
                         };
 
@@ -403,7 +395,7 @@ async fn datagrams_handler(
                             };
                         });
                     }
-                    MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING => {
+                    MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING | MessageType::TOPIC_REQUEST_NACK=> {
                         // 4.9 - invalid datagrams for the server
                         log(Warning, DatagramsHandler, format!("{} has sent an invalid datagram.", client_id), config.clone());
                     }
@@ -459,7 +451,7 @@ async fn ping_sender(
 
             let sender_ref = client_sender.clone();
             tokio::spawn(async move {
-                save_server_last_request_sent(sender_ref, client_id).await;
+                save_server_last_request_sent(sender_ref).await;
             });
             match result {
                 Ok(bytes) => {

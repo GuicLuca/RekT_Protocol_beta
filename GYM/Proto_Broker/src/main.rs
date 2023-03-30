@@ -49,8 +49,8 @@ fn main() {
         let full_addr = format!("{}:{}", addr.trim(), port.trim());
 
 
-        let client = Client::connect(full_addr.clone());
+        let mut client = Client::connect(full_addr.clone());
         println!("your id is : {}",client.get_id());
         println!("{}", client.create_topic_test().unwrap());
-        client.wait_xd()
+        client.wait_xd();
 }

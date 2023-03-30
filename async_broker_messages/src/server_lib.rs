@@ -12,7 +12,7 @@ use crate::config::{Config, LogLevel};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::LogSource::*;
-use crate::topic::Topic;
+//use crate::topic::Topic;
 
 pub enum LogSource {
     DatagramsHandler,
@@ -140,8 +140,7 @@ pub async fn get_client_id(
 
 
 pub async fn save_server_last_request_sent(
-    sender: Sender<ClientActions>,
-    client_id: u64,
+    sender: Sender<ClientActions>
 ){
     let cmd = UpdateServerLastRequest {time: now_ms()};
     tokio::spawn(async move {
@@ -154,9 +153,9 @@ pub async fn save_server_last_request_sent(
     });
 }
 
-pub async fn create_topics(path: &str, root: Arc<RwLock<Topic>>) -> Result<u64, String> {
+/*pub async fn create_topics(path: &str, root: Arc<RwLock<Topic>>) -> Result<u64, String> {
     Topic::create_topics_gpt(path, root).await
-}
+}*/
 
 
 pub async fn get_new_ping_reference(pings: Arc<Mutex<HashMap<u8, u128>>>, config: Arc<Config>) -> u8 {
@@ -201,9 +200,9 @@ const FNV_OFFSET: u64 = 14695981039346656037;
  */
 pub fn custom_string_hash(s: &str) -> u64 {
     let mut hash = FNV_OFFSET;
-    for b in s.bytes() {
+    s.bytes().into_iter().for_each(|b| {
         hash ^= b as u64;
         hash = hash.wrapping_mul(FNV_PRIME);
-    }
+    });
     hash
 }

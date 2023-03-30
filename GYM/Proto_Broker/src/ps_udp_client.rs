@@ -1,4 +1,6 @@
 use std::net::UdpSocket;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 
 use crate::ps_datagram_structs::*;
 use crate::ps_common::*;
@@ -6,6 +8,7 @@ use crate::ps_common::*;
 pub struct Client {
     id: u64,
     socket: UdpSocket,
+    topic_id:u64,
 }
 
 impl Client {
@@ -13,6 +16,7 @@ impl Client {
         Client {
             id,
             socket: stream,
+            topic_id:0
         }
     }
 
@@ -86,7 +90,14 @@ impl Client {
         }
     }
 
-    pub fn wait_xd(&self) {
+    pub fn wait_xd(&mut self) {
+        let mut sequence_number = 0;
+        self.create_topic_test();
+        let random_msg: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(500)
+            .map(char::from)
+            .collect();
         loop {
             let mut buffer = [0; 1024];
             // 2 - Wait for bytes reception
@@ -118,7 +129,13 @@ impl Client {
                                 }
                             }
                         }
-                        MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::PONG => {}
+                        MessageType::TOPIC_REQUEST_ACK =>{
+                            if(TopicsResponse::from(buffer[1]) == TopicsResponse::SUCCESS_SUB){
+                                println!("{:?}", buffer);
+                                self.topic_id = RQ_TopicRequest_ACK::from(buffer.as_ref()).topic_id;
+                            }
+                        }
+                        MessageType::TOPIC_REQUEST_NACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::PONG => {}
                         MessageType::UNKNOWN => {
                             println!("[Client] Received unknown packet from {}", src.ip())
                         }
@@ -128,10 +145,20 @@ impl Client {
                         }
                     }
                     //192.168.0.180
-                   for i in 0..100  {
-                       self.socket.send_to(&RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/home/topix/xd/ez/ez/ez/ez/ez/ez/ez/ez/ez").as_bytes(), src);
-                        //self.socket.send_to(&RQ_Heartbeat::new().as_bytes(), src);
-                   }
+                    /*if(self.topic_id != 0){
+                        for i in 0..100  {
+                            println!("sent data");
+                            self.socket.send_to(&RQ_Data::new(sequence_number,self.topic_id, random_msg.as_bytes().to_vec()).as_bytes(), src);
+                            sequence_number +=1;
+                        }
+                    }*/
+                    for i in 0..10  {
+                        println!("sent data");
+                        self.socket.send_to(&RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/ez/EZ/EZ/EZ/EZ/EZ/EZ/EZ/EZ/EZ").as_bytes(), src);
+                        sequence_number +=1;
+                    }
+
+
                     //println!("{}", String::from_utf8_lossy(&buf[..n]));
                 }
                 Err(e) => {

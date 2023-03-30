@@ -24,6 +24,7 @@ pub enum MessageType {
     PONG,
     TOPIC_REQUEST,
     TOPIC_REQUEST_ACK,
+    TOPIC_REQUEST_NACK,
     OBJECT_REQUEST,
     OBJECT_REQUEST_ACK,
     DATA,
@@ -42,20 +43,11 @@ pub fn display_message_type(message: MessageType) -> String {
         MessageType::PONG => "Pong".to_string(),
         MessageType::TOPIC_REQUEST => "Topic_Request".to_string(),
         MessageType::TOPIC_REQUEST_ACK => "Topic_Request_Ack".to_string(),
+        MessageType::TOPIC_REQUEST_NACK => "Topic_Request_Nack".to_string(),
         MessageType::OBJECT_REQUEST => "Object_Request".to_string(),
         MessageType::OBJECT_REQUEST_ACK => "Object_Request_Ack".to_string(),
         MessageType::DATA => "Data".to_string(),
         MessageType::UNKNOWN => "Unknown".to_string()
-    }
-}
-
-pub fn display_loglevel(loglevel: LogLevel) -> String {
-    match loglevel {
-        LogLevel::All => "All".to_string(),
-        LogLevel::Info => "Info".to_string(),
-        LogLevel::Warning => "Warning".to_string(),
-        LogLevel::Error => "Error".to_string(),
-        LogLevel::Quiet => "Quiet".to_string(),
     }
 }
 
@@ -74,6 +66,7 @@ impl From<u8> for MessageType {
             0x42 => MessageType::PONG,
             0x07 => MessageType::TOPIC_REQUEST,
             0x47 => MessageType::TOPIC_REQUEST_ACK,
+            0x46 => MessageType::TOPIC_REQUEST_NACK,
             0x08 => MessageType::OBJECT_REQUEST,
             0x48 => MessageType::OBJECT_REQUEST_ACK,
             0x05 => MessageType::DATA,
@@ -95,6 +88,7 @@ impl From<MessageType> for u8 {
             MessageType::PONG => 0x42,
             MessageType::TOPIC_REQUEST => 0x07,
             MessageType::TOPIC_REQUEST_ACK => 0x47,
+            MessageType::TOPIC_REQUEST_NACK => 0x46,
             MessageType::OBJECT_REQUEST => 0x08,
             MessageType::OBJECT_REQUEST_ACK => 0x48,
             MessageType::DATA => 0x05,
@@ -103,6 +97,15 @@ impl From<MessageType> for u8 {
     }
 }
 
+pub fn display_loglevel(loglevel: LogLevel) -> String {
+    match loglevel {
+        LogLevel::All => "All".to_string(),
+        LogLevel::Info => "Info".to_string(),
+        LogLevel::Warning => "Warning".to_string(),
+        LogLevel::Error => "Error".to_string(),
+        LogLevel::Quiet => "Quiet".to_string(),
+    }
+}
 
 // Connect status are all possible status
 // in a CONNECT_ACK request
@@ -285,7 +288,7 @@ pub fn get_bytes_from_slice(
     if to < from {
         panic!("from is greater than to");
     }
-    buffer[from..to].to_vec()
+    buffer[from..to+1].to_vec()
 }
 
 /** ==================================

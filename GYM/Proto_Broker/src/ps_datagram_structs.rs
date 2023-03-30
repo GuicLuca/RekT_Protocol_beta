@@ -1,6 +1,5 @@
 #![allow(non_camel_case_types, unused)]
 
-use rand::Fill;
 
 /** ==================================
 *
@@ -24,6 +23,7 @@ pub enum MessageType {
     PONG,
     TOPIC_REQUEST,
     TOPIC_REQUEST_ACK,
+    TOPIC_REQUEST_NACK,
     OBJECT_REQUEST,
     OBJECT_REQUEST_ACK,
     DATA,
@@ -42,6 +42,7 @@ pub fn display_message_type(message: MessageType) -> String {
         MessageType::PONG => "Pong".to_string(),
         MessageType::TOPIC_REQUEST => "Topic_Request".to_string(),
         MessageType::TOPIC_REQUEST_ACK => "Topic_Request_Ack".to_string(),
+        MessageType::TOPIC_REQUEST_NACK => "Topic_Request_Nack".to_string(),
         MessageType::OBJECT_REQUEST => "Object_Request".to_string(),
         MessageType::OBJECT_REQUEST_ACK => "Object_Request_Ack".to_string(),
         MessageType::DATA => "Data".to_string(),
@@ -64,6 +65,7 @@ impl From<u8> for MessageType {
             0x42 => MessageType::PONG,
             0x07 => MessageType::TOPIC_REQUEST,
             0x47 => MessageType::TOPIC_REQUEST_ACK,
+            0x46 => MessageType::TOPIC_REQUEST_NACK,
             0x08 => MessageType::OBJECT_REQUEST,
             0x48 => MessageType::OBJECT_REQUEST_ACK,
             0x05 => MessageType::DATA,
@@ -85,6 +87,7 @@ impl From<MessageType> for u8 {
             MessageType::PONG => 0x42,
             MessageType::TOPIC_REQUEST => 0x07,
             MessageType::TOPIC_REQUEST_ACK => 0x47,
+            MessageType::TOPIC_REQUEST_NACK => 0x46,
             MessageType::OBJECT_REQUEST => 0x08,
             MessageType::OBJECT_REQUEST_ACK => 0x48,
             MessageType::DATA => 0x05,
@@ -220,7 +223,7 @@ impl From<u8> for TopicsAction {
 
 // Topics response are all possible response
 // type to a TOPICS_REQUEST
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum TopicsResponse {
     SUCCESS_SUB,
@@ -577,7 +580,7 @@ impl RQ_TopicRequest {
 
 impl From<&[u8]> for RQ_TopicRequest {
     fn from(buffer: &[u8]) -> Self {
-        let size = Size::new(u16::from_le_bytes(get_bytes_from_slice(buffer, 1, 2).try_into().expect("Cannot get size from buffer.")));
+        let size = Size::new(u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap()));
         let payload_end = 4 + (size.size - 1) as usize;
 
         RQ_TopicRequest {
@@ -661,20 +664,22 @@ impl From<&[u8]> for RQ_TopicRequest_NACK {
 pub struct RQ_Data{
     pub message_type: MessageType, // 1 byte
     pub size: Size, // 2 bytes (u16)
+    pub sequence_number: u32, // 4 bytes (u32)
     pub topic_id: u64, // 8 bytes (u64)
     pub data: Vec<u8> // size bytes
 }
 impl RQ_Data {
 
-    pub fn new(topic_id: u64, payload: Vec<u8>)-> RQ_Data {
+    pub fn new(sequence_number: u32, topic_id: u64, payload: Vec<u8>)-> RQ_Data {
         let size = Size::new((payload.len() + 8) as u16); // payload length + 8 for topic id
-        RQ_Data{message_type:MessageType::DATA, topic_id, size, data: payload }
+        RQ_Data { message_type: MessageType::DATA, size, sequence_number, topic_id, data: payload }
     }
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
         let mut bytes = [u8::from(self.message_type)].to_vec();
         bytes.append(&mut self.size.size.to_le_bytes().to_vec());
+        bytes.append(&mut self.sequence_number.to_le_bytes().to_vec());
         bytes.append(&mut self.topic_id.to_le_bytes().to_vec());
         bytes.append(&mut self.data.clone());
 
@@ -685,13 +690,14 @@ impl RQ_Data {
 impl From<&[u8]> for RQ_Data {
     fn from(buffer: &[u8]) -> Self {
         let size = Size::new(u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap()));
-        let data_end = 11 + (size.size - 8) as usize;
+        let data_end = 15 + (size.size - 8) as usize;
 
         RQ_Data {
             message_type: MessageType::DATA,
             size,
-            topic_id: u64::from_le_bytes(buffer[3..].split_at(std::mem::size_of::<u64>()).0.try_into().unwrap()),
-            data: buffer[11..data_end].to_vec(),
+            sequence_number: u32::from_le_bytes(buffer[3..].split_at(std::mem::size_of::<u32>()).0.try_into().unwrap()),
+            topic_id: u64::from_le_bytes(buffer[7..].split_at(std::mem::size_of::<u64>()).0.try_into().unwrap()),
+            data: buffer[15..data_end].to_vec(),
         }
     }
 }
