@@ -59,13 +59,13 @@ async fn main() {
 
     // List of clients ping
     let clients_ping_ref: Arc<RwLock<HashMap<u64, u128>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Ping in ms>
-    let pings_ref: Arc<Mutex<HashMap<u8, u128>>> = Arc::new(Mutex::new(HashMap::default())); // <Ping ID, reference time in ms>
+    let pings_ref: PingsHashMap = Arc::new(Mutex::new(HashMap::default())); // <Ping ID, reference time in ms>
 
     // List of client heartbeat_status
     let client_has_heartbeat_ref: Arc<RwLock<HashMap<u64, bool>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, has_heartbeat>
 
     // List of client's subscribed topic
-    let clients_topics_ref: Arc<RwLock<HashMap<u64, HashSet<u64>>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, [TopicsID]>
+    let clients_topics_ref: TopicsHashMap<HashSet<ClientId>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, [TopicsID]>
 
     log(Info, Other, format!("Server variables successfully initialized"), config.clone());
 
@@ -100,8 +100,8 @@ async fn main() {
 
 /**
 This method handle every incoming datagram in the broker
-@param receiver Arc<UdpSocket> : An atomic reference of the UDP socket of the server
-@param clients_ref Arc<RwLock<HashMap<u64, SocketAddr>>> : An atomic reference of the clients HashMap. The map is protected by a rwLock to be thread safe
+@param receiver ServerSocket : An atomic reference of the UDP socket of the server
+@param clients_ref ClientsHashMap<SocketAddr> : An atomic reference of the clients HashMap. The map is protected by a rwLock to be thread safe
 @param root_ref Arc<RwLock<TopicV2>> : An atomic reference of root topics, protected by a rwlock to be thread safe
 @param pings_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of the pings time references, protected by a mutex to be thread safe
 @param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a rwLock to be thread safe
@@ -111,14 +111,14 @@ This method handle every incoming datagram in the broker
 @return none
  */
 async fn datagrams_handler(
-    receiver: Arc<UdpSocket>,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    receiver: ServerSocket,
+    clients: ClientsHashMap<SocketAddr>,
     root: Arc<RwLock<TopicV2>>,
-    pings: Arc<Mutex<HashMap<u8, u128>>>,
+    pings: PingsHashMap,
     clients_ping: Arc<RwLock<HashMap<u64, u128>>>,
     b_running: Arc<bool>,
     client_has_heartbeat: Arc<RwLock<HashMap<u64, bool>>>,
-    clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+    clients_topics: TopicsHashMap<HashSet<ClientId>>,
     config: Arc<Config>,
 ) {
     log(Info, DatagramsHandler, format!("Datagrams Handler spawned"), config.clone());
@@ -294,11 +294,11 @@ async fn datagrams_handler(
 }
 
 async fn handle_data(
-    sender: Arc<UdpSocket>,
+    sender: ServerSocket,
     buffer: [u8; 1024],
     client_id: u64,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-    clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+    clients: ClientsHashMap<SocketAddr>,
+    clients_topics: TopicsHashMap<HashSet<ClientId>>,
     config: Arc<Config>,
 ) {
     let data_rq = RQ_Data::from(buffer.as_ref());
@@ -323,20 +323,20 @@ async fn handle_data(
 
 /**
 This method send ping request to every connected clients
-@param sender Arc<UdpSocket> : An atomic reference of the UDP socket of the server
+@param sender ServerSocket : An atomic reference of the UDP socket of the server
 @param client_id u64 : The client identifier.
-@param clients: Arc<RwLock<HashMap<u64, SocketAddr>>> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
-@param pings Arc<Mutex<HashMap<u8, u128>>> : An atomic reference of the pings HashMap. The map is protected by a mutex to be thread safe
+@param clients: ClientsHashMap<SocketAddr> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
+@param pings PingsHashMap : An atomic reference of the pings HashMap. The map is protected by a mutex to be thread safe
 @param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
 @param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a mutex to be thread safe
 
 @return None
  */
 async fn ping_sender(
-    sender: Arc<UdpSocket>,
+    sender: ServerSocket,
     client_id: u64,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-    pings: Arc<Mutex<HashMap<u8, u128>>>,
+    clients: ClientsHashMap<SocketAddr>,
+    pings: PingsHashMap,
     clients_ping_ref: Arc<RwLock<HashMap<u64, u128>>>,
     b_running: Arc<bool>,
     config: Arc<Config>,
@@ -367,21 +367,21 @@ async fn ping_sender(
 
 /**
 This method check if heartbeat are sent correctly and else close the client session
-@param sender Arc<UdpSocket> : An atomic reference of the UDP socket of the server
+@param sender ServerSocket : An atomic reference of the UDP socket of the server
 @param client_id u64 : The client identifier.
-@param clients Arc<RwLock<HashMap<u64, SocketAddr>>> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
+@param clients ClientsHashMap<SocketAddr> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
 @param client_has_heartbeat_ref Arc<RwLock<HashMap<u64, bool>>> : An atomic reference of the heartbeat_status HashMap. The map is protected by a rwlock to be thread safe
 @param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
 
 @return None
  */
 async fn heartbeat_checker(
-    sender: Arc<UdpSocket>,
+    sender: ServerSocket,
     client_id: u64,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    clients: ClientsHashMap<SocketAddr>,
     client_has_heartbeat_ref: Arc<RwLock<HashMap<u64, bool>>>,
     b_running: Arc<bool>,
-    client_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+    client_topics: TopicsHashMap<HashSet<ClientId>>,
     config: Arc<Config>,
 ) {
     log(Info, HeartbeatChecker, format!("HeartbeatChecker sender spawned for {}", client_id), config.clone());
@@ -466,9 +466,9 @@ async fn heartbeat_checker(
 }
 
 pub async fn handle_disconnect(
-    clients_ref: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    clients_ref: ClientsHashMap<SocketAddr>,
     client_id: u64,
-    client_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+    client_topics: TopicsHashMap<HashSet<ClientId>>,
     config: Arc<Config>,
 ) {
     /* need to clear :
@@ -495,11 +495,11 @@ pub async fn handle_disconnect(
 /**
  */
 async fn topics_request_handler(
-    sender: Arc<UdpSocket>,
+    sender: ServerSocket,
     buffer: [u8; 1024],
     client_id: u64,
     client_addr: SocketAddr,
-    clients_topics: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+    clients_topics: TopicsHashMap<HashSet<ClientId>>,
     root_ref: Arc<RwLock<TopicV2>>,
     config: Arc<Config>,
 ) {

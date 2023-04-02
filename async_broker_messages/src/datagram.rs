@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types, unused)]
 
 use crate::config::LogLevel;
+use crate::types::Size;
 
 /** ==================================
 *
@@ -267,18 +268,6 @@ impl From<u8> for TopicsResponse {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Size {
-    pub size: u16,
-}
-impl Size {
-    pub const fn new(size: u16) -> Size {
-        Size {
-            size,
-        }
-    }
-}
-
 
 pub fn get_bytes_from_slice(
     buffer: &[u8],
@@ -368,14 +357,14 @@ pub struct RQ_Connect_ACK_ERROR {
 impl RQ_Connect_ACK_ERROR {
     pub fn new(message: &str) -> RQ_Connect_ACK_ERROR {
         let reason = message.as_bytes().to_vec();
-        let message_size = Size::new((reason.len() + 1) as u16);
+        let message_size = (reason.len() + 1) as u16;
         RQ_Connect_ACK_ERROR { message_type: MessageType::CONNECT_ACK, status: ConnectStatus::FAILURE, message_size, reason }
     }
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
         let mut bytes = [u8::from(self.message_type)].to_vec();
-        bytes.append(&mut self.message_size.size.to_le_bytes().to_vec());
+        bytes.append(&mut self.message_size.to_le_bytes().to_vec());
         bytes.append(&mut [u8::from(self.status)].to_vec());
         bytes.append(&mut self.reason.clone());
 
@@ -389,7 +378,7 @@ impl From<&[u8]> for RQ_Connect_ACK_ERROR {
         RQ_Connect_ACK_ERROR {
             message_type: MessageType::CONNECT_ACK,
             status: ConnectStatus::FAILURE,
-            message_size: Size::new(size),
+            message_size: size,
             reason: get_bytes_from_slice(buffer, 4, (4 + size - 1) as usize),
         }
     }
@@ -573,14 +562,14 @@ pub struct RQ_TopicRequest {
 impl RQ_TopicRequest {
     pub fn new(action: TopicsAction, payload: &str) -> RQ_TopicRequest {
         let payload = payload.as_bytes().to_vec();
-        let size = Size::new((payload.len() + 1) as u16); // string length + 1 for the action
+        let size = (payload.len() + 1) as u16; // string length + 1 for the action
         RQ_TopicRequest { message_type: MessageType::TOPIC_REQUEST, action, size, payload }
     }
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
         let mut bytes = [u8::from(self.message_type)].to_vec();
-        bytes.append(&mut self.size.size.to_le_bytes().to_vec());
+        bytes.append(&mut self.size.to_le_bytes().to_vec());
         bytes.append(&mut [u8::from(self.action)].to_vec());
         bytes.append(&mut self.payload.clone());
 
@@ -590,8 +579,8 @@ impl RQ_TopicRequest {
 
 impl From<&[u8]> for RQ_TopicRequest {
     fn from(buffer: &[u8]) -> Self {
-        let size = Size::new(u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap()));
-        let payload_end = 4 + (size.size - 1) as usize;
+        let size = u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap());
+        let payload_end = 4 + (size - 1) as usize;
 
         RQ_TopicRequest {
             message_type: MessageType::TOPIC_REQUEST,
@@ -644,7 +633,7 @@ pub struct RQ_TopicRequest_NACK {
 impl RQ_TopicRequest_NACK {
 
     pub fn new(status: TopicsResponse, error_message: String) -> RQ_TopicRequest_NACK {
-        let size = Size::new((error_message.len() + 1) as u16); // string length + 1 for the action
+        let size = (error_message.len() + 1) as u16; // string length + 1 for the action
         RQ_TopicRequest_NACK { message_type: MessageType::TOPIC_REQUEST_ACK, status, size, error_message}
     }
 
@@ -660,12 +649,12 @@ impl RQ_TopicRequest_NACK {
 
 impl From<&[u8]> for RQ_TopicRequest_NACK {
     fn from(buffer: &[u8]) -> Self {
-        let size = Size::new(u16::from_le_bytes(get_bytes_from_slice(buffer, 2, 3).try_into().expect("Bad Size received")));
+        let size = u16::from_le_bytes(get_bytes_from_slice(buffer, 2, 3).try_into().expect("Bad Size received"));
         RQ_TopicRequest_NACK {
             message_type: MessageType::TOPIC_REQUEST_ACK,
             status: TopicsResponse::from(buffer.get(1).unwrap().clone()),
             size,
-            error_message: String::from_utf8(get_bytes_from_slice(buffer, 4, (4 + size.size - 1) as usize)).unwrap()
+            error_message: String::from_utf8(get_bytes_from_slice(buffer, 4, (4 + size - 1) as usize)).unwrap()
         }
     }
 }
@@ -681,14 +670,14 @@ pub struct RQ_Data{
 impl RQ_Data {
 
     pub fn new(sequence_number: u32, topic_id: u64, payload: Vec<u8>)-> RQ_Data {
-        let size = Size::new((payload.len() + 8) as u16); // payload length + 8 for topic id
+        let size = (payload.len() + 8) as u16; // payload length + 8 for topic id
         RQ_Data { message_type: MessageType::DATA, size, sequence_number, topic_id, data: payload }
     }
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
         let mut bytes = [u8::from(self.message_type)].to_vec();
-        bytes.append(&mut self.size.size.to_le_bytes().to_vec());
+        bytes.append(&mut self.size.to_le_bytes().to_vec());
         bytes.append(&mut self.sequence_number.to_le_bytes().to_vec());
         bytes.append(&mut self.topic_id.to_le_bytes().to_vec());
         bytes.append(&mut self.data.clone());
@@ -699,8 +688,8 @@ impl RQ_Data {
 
 impl From<&[u8]> for RQ_Data {
     fn from(buffer: &[u8]) -> Self {
-        let size = Size::new(u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap()));
-        let data_end = 15 + (size.size - 8) as usize;
+        let size = u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap());
+        let data_end = 15 + (size - 8) as usize;
 
         RQ_Data {
             message_type: MessageType::DATA,

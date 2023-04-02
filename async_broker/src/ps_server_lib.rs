@@ -121,7 +121,7 @@ This methods return the id of the given client
  */
 pub async fn get_client_id(
     src: &SocketAddr,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    clients: ClientsHashMap<SocketAddr>,
 ) -> Option<u64> {
     for (key, val) in clients.read().await.iter() {
         if val == src {
@@ -135,14 +135,14 @@ pub async fn get_client_id(
 This methods handle the connexion of a new client to the server.
 @param src SocketAddr : The new client
 @param clients MutexGuard<HashMap<u64, SocketAddr>> : Hashmap containing all clients address and clients id.
-@param socket Arc<UdpSocket> : Server socket to exchange datagrams with clients
+@param socket ServerSocket : Server socket to exchange datagrams with clients
 
 @return none
  */
 pub async fn handle_connect(
     src: SocketAddr,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-    socket: Arc<UdpSocket>,
+    clients: ClientsHashMap<SocketAddr>,
+    socket: ServerSocket,
     config: Arc<Config>,
 ) -> bool {
     let (is_connected, current_id) = already_connected(&src.ip(), clients.read().await).await;
@@ -175,7 +175,7 @@ pub async fn create_topics(path: &str, root: Arc<RwLock<TopicV2>>) -> Result<u64
 }
 
 
-pub async fn get_new_ping_reference(pings: Arc<Mutex<HashMap<u8, u128>>>, config: Arc<Config>) -> u8 {
+pub async fn get_new_ping_reference(pings: PingsHashMap, config: Arc<Config>) -> u8 {
     let key = get_new_ping_id();
 
     let time = SystemTime::now()
@@ -192,7 +192,7 @@ pub async fn get_new_ping_reference(pings: Arc<Mutex<HashMap<u8, u128>>>, config
 This method check if heartbeat are sent correctly and else close the client session
 @param client_id u64 : The client identifier.
 TODO : completer la doc
-@param clients Arc<RwLock<HashMap<u64, SocketAddr>>> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
+@param clients ClientsHashMap<SocketAddr> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
 
 @return None
  */
@@ -200,9 +200,9 @@ pub async fn handle_pong(
     client_id: u64,
     ping_id: u8,
     current_time: u128,
-    pings_ref: Arc<Mutex<HashMap<u8, u128>>>,
+    pings_ref: PingsHashMap,
     clients_ping: Arc<RwLock<HashMap<u64, u128>>>,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    clients: ClientsHashMap<SocketAddr>,
     config: Arc<Config>,
 ) {
     // 0 - if client are not in the client array, they are offline so abort the treatment
@@ -224,7 +224,7 @@ pub async fn handle_pong(
 
 pub async fn is_online(
     client_id: u64,
-    clients: Arc<RwLock<HashMap<u64, SocketAddr>>>,
+    clients: ClientsHashMap<SocketAddr>,
 ) -> bool
 {
     let clients_read = clients.read().await;

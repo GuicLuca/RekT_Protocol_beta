@@ -8,9 +8,8 @@ use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use tokio::net::UdpSocket;
 use tokio::sync::{Mutex};
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{Receiver};
 use tokio::time::sleep;
 
 use crate::client_lib::{client_has_sent_life_sign, ClientActions, now_ms};
@@ -20,11 +19,12 @@ use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::*;
 use crate::server_lib::LogSource::*;
+use crate::types::{ClientId, ClientSender, ClientsHashMap, ServerSocket, TopicsHashMap};
 
 #[derive(Debug)]
 pub struct Client {
     // Identifiers
-    pub id: u64,
+    pub id: ClientId,
     socket: SocketAddr,
     receiver: Receiver<ClientActions>,
 
@@ -166,11 +166,9 @@ impl Client {
                                     // use closure to reduce the lock lifetime
                                     *clients_addresses.read().await.get(&client).unwrap()
                                 };
-                                let result = sender.send_to(&data, client_addr).await.unwrap();
-                                tokio::spawn(async move {
-                                    save_server_last_request_sent(client_sender).await;
-                                });
-                                log(Info, DataHandler, format!("Sent {} bytes to {}", result, client_addr), config_ref.clone());
+                                let result = send_datagram(sender.clone(), &data, client_addr, client_sender).await;
+
+                                log(Info, DataHandler, format!("Sent {} bytes to {}", result.unwrap(), client_addr), config_ref.clone());
                             }
                         });
                     }
@@ -310,10 +308,12 @@ impl Client {
                                         });
 
                                         // 3 - respond with a topic ack
-                                        result = server_socket.send_to(&RQ_TopicRequest_ACK::new(topic_hash, TopicsResponse::SUCCESS_SUB).as_bytes(), client_addr).await;
-                                        tokio::spawn(async move {
-                                            save_server_last_request_sent(client_sender).await;
-                                        });
+                                        result = send_datagram(
+                                            server_socket.clone(),
+                                            &RQ_TopicRequest_ACK::new(topic_hash, TopicsResponse::SUCCESS_SUB).as_bytes(),
+                                            client_addr,
+                                            client_sender
+                                        ).await;
 
                                         match result {
                                             Ok(_) => {
@@ -325,10 +325,13 @@ impl Client {
                                         }
                                     }else {
                                         // 2bis - Respond with an error message
-                                        result = server_socket.send_to(&RQ_TopicRequest_NACK::new(TopicsResponse::FAILURE_SUB, "Already subscribed to {}.".to_string()).as_bytes(), client_addr).await;
-                                        tokio::spawn(async move {
-                                            save_server_last_request_sent(client_sender).await;
-                                        });
+                                        result = send_datagram(
+                                            server_socket.clone(),
+                                            &RQ_TopicRequest_NACK::new(TopicsResponse::FAILURE_SUB, "Already subscribed to {}.".to_string()).as_bytes(),
+                                            client_addr,
+                                            client_sender
+                                        ).await;
+
                                         match result {
                                             Ok(_) => {
                                                 log(Info, TopicHandler, format!("{} has failed sub the topic {} (ALREADY SUB)", client_id, topic_hash), config_ref.clone());
@@ -358,10 +361,13 @@ impl Client {
                                         };
                                     });
 
-                                    result = server_socket.send_to(&RQ_TopicRequest_ACK::new(topic_hash, TopicsResponse::SUCCESS_USUB).as_bytes(), client_addr).await;
-                                    tokio::spawn(async move {
-                                        save_server_last_request_sent(client_sender).await;
-                                    });
+                                    result = send_datagram(
+                                        server_socket.clone(),
+                                        &RQ_TopicRequest_ACK::new(topic_hash, TopicsResponse::SUCCESS_USUB).as_bytes(),
+                                        client_addr,
+                                        client_sender
+                                    ).await;
+
                                     match result {
                                         Ok(_) => {
                                             log(Info, TopicHandler, format!("{} has successfully unsub the topic {}", client_id, topic_hash), config_ref.clone());
@@ -381,13 +387,6 @@ impl Client {
                     RemoveSubscribedTopic { topic_id } => {
                         self.topics.write().unwrap().remove(&topic_id); // Warning: code bloquant
                     }
-                    /*GetTopics { resp } => {
-                        let res = {
-                            self.topics.read().unwrap().clone()
-                        };
-                        // Ignore errors
-                        resp.send(Ok(res)).expect("Error while sending response to client");
-                    }*/
                 } // end match
             }
         }
@@ -402,12 +401,12 @@ impl Client {
 pub async fn heartbeat_manager(
     id: u64,
     socket: SocketAddr,
-    clients: Arc<tokio::sync::RwLock<HashMap<u64, Sender<ClientActions>>>>,
-    topics_subscribers: Arc<tokio::sync::RwLock<HashMap<u64, HashSet<u64>>>>,
-    clients_addresses: Arc<tokio::sync::RwLock<HashMap<u64, SocketAddr>>>,
-    clients_structs: Arc<tokio::sync::RwLock<HashMap<u64, Arc<Mutex<Client>>>>>,
+    clients: ClientsHashMap<ClientSender>,
+    topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
+    clients_addresses: ClientsHashMap<SocketAddr>,
+    clients_structs: ClientsHashMap<Arc<Mutex<Client>>>,
     b_running: Arc<bool>,
-    server_sender: Arc<UdpSocket>,
+    server_sender: ServerSocket,
     config: Arc<Config>,
 ) {
     log(Info, HeartbeatChecker, format!("HeartbeatChecker spawned for {}", id), config.clone());
@@ -430,11 +429,14 @@ pub async fn heartbeat_manager(
             log(Info, HeartbeatChecker, format!("{} hasn't sent life signs {} times", id, missed_heartbeats), config.clone());
             if missed_heartbeats == 2 {
                 // 7 - send an heartbeat request
-                let result = server_sender.send_to(&RQ_Heartbeat_Request::new().as_bytes(), socket).await;
-                let sender_ref = client_sender.clone();
-                tokio::spawn(async move {
-                    save_server_last_request_sent(sender_ref).await;
-                });
+                let result = send_datagram(
+                    server_sender.clone(),
+                    &RQ_Heartbeat_Request::new().as_bytes(),
+                    socket,
+                    client_sender.clone()
+                ).await;
+
+
                 match result {
                     Ok(bytes) => {
                         log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, id), config.clone());
@@ -446,11 +448,13 @@ pub async fn heartbeat_manager(
             } else if missed_heartbeats == 4 {
                 // 8 - No Heartbeat for 4 period = end the client connection.
                 // 8.1 - Send shutdown request
-                let result = server_sender.send_to(&RQ_Shutdown::new(EndConnexionReason::SHUTDOWN).as_bytes(), socket).await;
-                let sender_ref = client_sender.clone();
-                tokio::spawn(async move {
-                    save_server_last_request_sent(sender_ref).await;
-                });
+                let result = send_datagram(
+                    server_sender.clone(),
+                    &RQ_Shutdown::new(EndConnexionReason::SHUTDOWN).as_bytes(),
+                    socket,
+                    client_sender.clone()
+                ).await;
+
                 match result {
                     Ok(bytes) => {
                         log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, id), config.clone());
@@ -479,11 +483,13 @@ pub async fn heartbeat_manager(
         } else {
             // 7bis - reset flags variable
             missed_heartbeats = 0;
-            let result = server_sender.send_to(&RQ_Heartbeat::new().as_bytes(), socket).await;
-            let sender_ref = client_sender.clone();
-            tokio::spawn(async move {
-                save_server_last_request_sent(sender_ref).await;
-            });
+            let result = send_datagram(
+                server_sender.clone(),
+                &RQ_Heartbeat::new().as_bytes(),
+                socket,
+                client_sender.clone()
+            ).await;
+
             match result {
                 Ok(_) => {
                     log(Info, HeartbeatChecker, format!("Respond to client bytes (HeartBeat) to {}", id), config.clone());

@@ -6,7 +6,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use local_ip_address::local_ip;
 use tokio::{join, net::UdpSocket};
 use tokio::sync::{mpsc, Mutex};
-use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
@@ -18,14 +17,14 @@ use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::*;
 use crate::server_lib::LogSource::*;
-//use crate::topic::Topic;
+use crate::types::{ClientId, ClientSender, ClientsHashMap, PingsHashMap, ServerSocket, TopicsHashMap};
 
 mod config;
 mod datagram;
 mod server_lib;
-//mod topic;
 mod client;
 mod client_lib;
+mod types;
 
 #[tokio::main]
 async fn main() {
@@ -42,26 +41,25 @@ async fn main() {
 
     // The socket used by the server to exchange datagrams with clients
     let socket = UdpSocket::bind(format!("{}:{}", "0.0.0.0", config.port.parse::<i16>().unwrap())).await.unwrap();
-    let socket_ref = Arc::new(socket);
+    let socket_ref: ServerSocket = Arc::new(socket);
 
     // List of clients represented by their address and their ID
-    let clients: RwLock<HashMap<u64, Sender<ClientActions>>> = RwLock::new(HashMap::default()); // <Client ID, Sender> -> the sender is used to sent command through the mpsc channels
-    let clients_ref = Arc::new(clients);
-    let clients_structs: Arc<RwLock<HashMap<u64, Arc<Mutex<Client>>>>> = Arc::new(RwLock::new(HashMap::default())); // used only to keep struct alive
+    let clients_ref = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Sender> -> the sender is used to sent command through the mpsc channels
+    let clients_structs: ClientsHashMap<Arc<Mutex<Client>>> = Arc::new(RwLock::new(HashMap::default())); // used only to keep struct alive
 
     // List of clients address
     let clients_address: RwLock<HashMap<u64, SocketAddr>> = RwLock::new(HashMap::default()); // <Client ID, address>
     let clients_address_ref = Arc::new(clients_address);
 
     // List of time reference for ping requests
-    let pings_ref: Arc<Mutex<HashMap<u8, u128>>> = Arc::new(Mutex::new(HashMap::default())); // <Ping ID, reference time in ms>
+    let pings_ref: PingsHashMap = Arc::new(Mutex::new(HashMap::default())); // <Ping ID, reference time in ms>
 
     // List of topic subscribers
-    let topics_subscribers_ref: Arc<RwLock<HashMap<u64, HashSet<u64>>>> = Arc::new(RwLock::new(HashMap::default())); // <Topic ID, [Clients ID]>
+    let topics_subscribers_ref: TopicsHashMap<HashSet<ClientId>> = Arc::new(RwLock::new(HashMap::default())); // <Topic ID, [Clients ID]>
 
     // Root topic which can be subscribed by clients
     // Every topics have sub topic to them, you can go through each one like in a tree
-    //let objects_topic: Arc<RwLock<HashMap<u64, HashSet<u64>>>> = Arc::new(RwLock::new(HashMap::new()));
+    //let objects_topic: TopicsHashMap<HashSet<ClientId>> = Arc::new(RwLock::new(HashMap::new()));
 
 
     log(Info, Other, format!("Server variables successfully initialized"), config.clone());
@@ -117,8 +115,8 @@ async fn main() {
 
 /**
 This method handle every incoming datagram in the broker
-@param receiver Arc<UdpSocket> : An atomic reference of the UDP socket of the server
-@param clients_ref Arc<RwLock<HashMap<u64, Sender<ClientActions>>> : An atomic reference of the clients HashMap. The map is protected by a rwLock to be thread safe
+@param receiver ServerSocket : An atomic reference of the UDP socket of the server
+@param clients_ref Arc<RwLock<HashMap<u64, ClientSender>> : An atomic reference of the clients HashMap. The map is protected by a rwLock to be thread safe
 @param root_ref Arc<RwLock<TopicV2>> : An atomic reference of root topics, protected by a rwlock to be thread safe
 @param pings_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of the pings time references, protected by a mutex to be thread safe
 @param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a rwLock to be thread safe
@@ -128,13 +126,13 @@ This method handle every incoming datagram in the broker
 @return none
  */
 async fn datagrams_handler(
-    receiver: Arc<UdpSocket>,
-    clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
-    clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-    pings: Arc<Mutex<HashMap<u8, u128>>>,
+    receiver: ServerSocket,
+    clients: ClientsHashMap<ClientSender>,
+    clients_addresses: ClientsHashMap<SocketAddr>,
+    pings: PingsHashMap,
     b_running: Arc<bool>,
-    topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
-    clients_structs: Arc<RwLock<HashMap<u64, Arc<Mutex<Client>>>>>,
+    topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
+    clients_structs: ClientsHashMap<Arc<Mutex<Client>>>,
     config: Arc<Config>,
 ) {
     log(Info, DatagramsHandler, format!("Datagrams Handler spawned"), config.clone());
@@ -231,14 +229,14 @@ async fn datagrams_handler(
                                 }
 
                             }
-
-                            let datagram = &RQ_Connect_ACK_OK::new(uuid, config_ref.heart_beat_period).as_bytes();
-                            result = socket_ref.send_to(datagram, src).await;
-
                             let sender = {
                                 let map = clients_ref.read().await;
                                 map.get(&uuid).unwrap().clone()
                             };
+                            let datagram = &RQ_Connect_ACK_OK::new(uuid, config_ref.heart_beat_period).as_bytes();
+                            result = send_datagram(socket_ref.clone(),datagram,src, sender.clone()).await;
+
+
 
                             // New client connected spawn a task to start his personal managers
                             if !is_connected {
@@ -263,13 +261,13 @@ async fn datagrams_handler(
                                 });
 
                                 // init his ping with this request:
-                                socket_ref.send_to(&RQ_Ping::new(get_new_ping_reference(pings_ref, config_ref.clone()).await).as_bytes(), src).await.expect("Failed to send ping to client");
-                            }
-
-                            let sslrs_sender = sender.clone();
-                            tokio::spawn(async move {
-                                save_server_last_request_sent(sslrs_sender).await;
-                            });
+                                send_datagram(
+                                    socket_ref,
+                                    &RQ_Ping::new(get_new_ping_reference(pings_ref, config_ref.clone()).await).as_bytes(),
+                                    src,
+                                    sender.clone()
+                                ).await.unwrap();
+                            } // End if
                             match result {
                                 Ok(bytes) => {
                                     log(Info, DatagramsHandler, format!("Send {} bytes (RQ_Connect_ACK_OK) to {}", bytes, src.ip()), config_ref.clone());
@@ -413,27 +411,27 @@ async fn datagrams_handler(
 
 /** TODO : doc
 This method send ping request to every connected clients
-@param sender Arc<UdpSocket> : An atomic reference of the UDP socket of the server
+@param sender ServerSocket : An atomic reference of the UDP socket of the server
 @param client_id u64 : The client identifier.
-@param clients: Arc<RwLock<HashMap<u64, SocketAddr>>> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
-@param pings Arc<Mutex<HashMap<u8, u128>>> : An atomic reference of the pings HashMap. The map is protected by a mutex to be thread safe
+@param clients: ClientsHashMap<SocketAddr> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
+@param pings PingsHashMap : An atomic reference of the pings HashMap. The map is protected by a mutex to be thread safe
 @param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
 @param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a mutex to be thread safe
 
 @return None
  */
 async fn ping_sender(
-    sender: Arc<UdpSocket>,
-    clients_address: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-    clients_senders: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
-    pings: Arc<Mutex<HashMap<u8, u128>>>,
+    sender: ServerSocket,
+    clients_address: ClientsHashMap<SocketAddr>,
+    clients_senders: ClientsHashMap<ClientSender>,
+    pings: PingsHashMap,
     b_running: Arc<bool>,
     config: Arc<Config>,
 ) {
     log(Info, PingSender, format!("Ping sender spawned"), config.clone());
     while *b_running {
         // get all connected ids:
-        let ids: Vec<u64> = {
+        let ids: Vec<ClientId> = {
             clients_address.read().await.keys().map(|s| *s).collect()
         };
 
@@ -446,14 +444,14 @@ async fn ping_sender(
                 let map = clients_address.read().await;
                 map.get(&client_id).unwrap().clone()
             };
-            // 2 - Send a ping request to the client
-            let result = sender.send_to(&RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(), client_addr).await;
 
-            let sender_ref = client_sender.clone();
-            tokio::spawn(async move {
-                save_server_last_request_sent(sender_ref).await;
-            });
-            match result {
+            // 2 - Send a ping request to the client
+            match send_datagram(
+                sender.clone(),
+                &RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(),
+                client_addr,
+                client_sender.clone()
+            ).await {
                 Ok(bytes) => {
                     log(Info, PingSender, format!("Send {} bytes to {}", bytes, client_id), config.clone());
                 }

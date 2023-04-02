@@ -2,15 +2,12 @@
 // @author : GuicLuca (lucasguichard127@gmail.com)
 // date : 22/03/2023
 
-use std::collections::{HashMap, HashSet};
-use std::io::Error;
+use std::collections::{HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tokio::net::UdpSocket;
-use tokio::sync::{Mutex, oneshot, RwLock};
-use tokio::sync::mpsc::Sender;
+use tokio::sync::{Mutex, oneshot};
 
 use crate::client::Client;
 use crate::client_lib::ClientActions::Get;
@@ -18,12 +15,7 @@ use crate::config::Config;
 use crate::config::LogLevel::Warning;
 use crate::server_lib::log;
 use crate::server_lib::LogSource::ClientManager;
-//use crate::topic::Topic;
-
-// ===================
-//   Common used type
-// ===================
-type Responder<T> = oneshot::Sender<Result<T, Error>>;
+use crate::types::{ClientId, ClientSender, ClientsHashMap, PingsHashMap, Responder, ServerSocket, TopicId, TopicsHashMap};
 
 
 /**
@@ -38,29 +30,26 @@ pub enum ClientActions {
         resp: Responder<u128>,
     },
     HandleData {
-        sender: Arc<UdpSocket>,
+        sender: ServerSocket,
         buffer: [u8; 1024],
-        clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
-        clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-        topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
+        clients: ClientsHashMap<ClientSender>,
+        clients_addresses: ClientsHashMap<SocketAddr>,
+        topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
         config: Arc<Config>,
     },
-    /*GetTopics{
-        resp: Responder<HashSet<u64>>
-    },*/
     AddSubscribedTopic{
-        topic_id: u64
+        topic_id: TopicId
     },
     RemoveSubscribedTopic{
-        topic_id: u64
+        topic_id: TopicId
     },
     StartManagers{
-        clients: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
-        topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
-        clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-        clients_structs: Arc<RwLock<HashMap<u64, Arc<Mutex<Client>>>>>,
+        clients: ClientsHashMap<ClientSender>,
+        topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
+        clients_addresses: ClientsHashMap<SocketAddr>,
+        clients_structs: ClientsHashMap<Arc<Mutex<Client>>>,
         b_running: Arc<bool>,
-        server_sender: Arc<UdpSocket>
+        server_sender: ServerSocket
     },
     UpdateServerLastRequest{
         time: u128
@@ -71,19 +60,19 @@ pub enum ClientActions {
     HandlePong {
         ping_id: u8, // The ping request that is answered
         current_time: u128, // Server time when the request has been received
-        pings_ref: Arc<Mutex<HashMap<u8, u128>>>, // contain all ping request sent by the server
+        pings_ref: PingsHashMap, // contain all ping request sent by the server
     },
     HandleTopicRequest{
-        server_socket: Arc<UdpSocket>,
+        server_socket: ServerSocket,
         buffer: [u8; 1024],
-        topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
-        client_sender: Sender<ClientActions>
+        topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
+        client_sender: ClientSender
     },
     HandleDisconnect{
-        topics_subscribers: Arc<RwLock<HashMap<u64, HashSet<u64>>>>,
-        clients_ref: Arc<RwLock<HashMap<u64, Sender<ClientActions>>>>,
-        clients_addresses: Arc<RwLock<HashMap<u64, SocketAddr>>>,
-        clients_structs: Arc<RwLock<HashMap<u64, Arc<Mutex<Client>>>>>
+        topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
+        clients_ref: ClientsHashMap<ClientSender>,
+        clients_addresses: ClientsHashMap<SocketAddr>,
+        clients_structs: ClientsHashMap<Arc<Mutex<Client>>>
     }
 }
 
@@ -96,7 +85,7 @@ pub fn now_ms() -> u128
 }
 
 pub async fn client_has_sent_life_sign(
-    client_sender: Sender<ClientActions>,
+    client_sender: ClientSender,
     config: Arc<Config>
 ) -> bool
 {
