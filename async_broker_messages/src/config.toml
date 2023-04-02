@@ -1,12 +1,12 @@
 [server]
-port = "3838"
+port = "3838" # listening port of the server
 
 [period]
-heartbeat_period = 2
-ping_period = 5
+heartbeat_period = 2 #secondes
+ping_period = 5 #secondes
 
 [debug]
-debug_level = 'All'
+debug_level = 'All'  #All,Info,Warning,Error,Quiet,
 debug_datagram_handler = true
 debug_ping_sender = true
 debug_data_handler = true

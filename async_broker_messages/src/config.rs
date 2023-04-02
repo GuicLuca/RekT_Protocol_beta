@@ -1,9 +1,16 @@
+// This document contain the config system. It read values from a toml file and
+// then it return it as a rust structure.
+// @author : GuicLuca (lucasguichard127@gmail.com)
+// date : 14/03/2023
+
 use std::fs;
 use std::io::Error as IoError;
-
 use serde::{Deserialize, Serialize};
 use toml;
 
+/**
+ * LogLevel are used to filter log messages
+ */
 #[derive(PartialEq, PartialOrd, Serialize, Deserialize, Debug)]
 pub enum LogLevel {
     All,
@@ -13,17 +20,20 @@ pub enum LogLevel {
     Quiet,
 }
 
+// Contain the Server table of the toml file
 #[derive(Serialize, Deserialize, Debug)]
 struct ConfigTomlServer {
     port: Option<String>,
 }
 
+// Contain the Period table of the toml file
 #[derive(Serialize, Deserialize, Debug)]
 struct ConfigTomlPeriod {
     heartbeat_period: Option<u16>,
     ping_period: Option<u16>,
 }
 
+// Contain the Debug table of the toml file
 #[derive(Serialize, Deserialize, Debug)]
 struct ConfigTomlDebug {
     debug_level: Option<LogLevel>,
@@ -35,6 +45,7 @@ struct ConfigTomlDebug {
     debug_client_manager: Option<bool>,
 }
 
+// Used to load every table of the toml file
 #[derive(Serialize, Deserialize, Debug)]
 struct ConfigToml {
     server: Option<ConfigTomlServer>,
@@ -42,6 +53,8 @@ struct ConfigToml {
     period: Option<ConfigTomlPeriod>,
 }
 
+// This is the final structure that contain every
+// values of the toml file.
 #[derive(Debug)]
 pub struct Config {
     pub port: String,
