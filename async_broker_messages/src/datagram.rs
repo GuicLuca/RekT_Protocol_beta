@@ -10,8 +10,10 @@ use crate::types::Size;
 *
 ** ================================*/
 
-// Message type are used to translate
-// request type to the corresponding code
+/**
+ * MessageType are used to translate request type
+ * to the corresponding hexadecimal code.
+ */
 #[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum MessageType {
@@ -32,7 +34,16 @@ pub enum MessageType {
     UNKNOWN,
 }
 
-pub fn display_message_type(message: MessageType) -> String {
+/**
+ * This function return the string name of the MessageType given.
+ *
+ * @param message: MessageType, the source to translate into string.
+ *
+ * @return string, the corresponding name
+ */
+pub fn display_message_type(
+    message: MessageType
+) -> String {
     match message {
         MessageType::CONNECT => "Connect".to_string(),
         MessageType::CONNECT_ACK => "Connect_ACK".to_string(),
@@ -52,8 +63,13 @@ pub fn display_message_type(message: MessageType) -> String {
     }
 }
 
-impl Eq for MessageType {}
-
+/**
+ * This function convert a u8 to a MessageType
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return MessageType
+ */
 impl From<u8> for MessageType {
     fn from(value: u8) -> Self {
         match value {
@@ -76,6 +92,13 @@ impl From<u8> for MessageType {
     }
 }
 
+/**
+ * This function convert a MessageType to an u8
+ *
+ * @param value: MessageType, The source to convert
+ *
+ * @return u8
+ */
 impl From<MessageType> for u8 {
     fn from(value: MessageType) -> Self {
         match value {
@@ -98,6 +121,13 @@ impl From<MessageType> for u8 {
     }
 }
 
+/**
+ * This function convert a LogLevel into a string
+ *
+ * @param loglevel: LogLevel, The source to convert
+ *
+ * @return String
+ */
 pub fn display_loglevel(loglevel: LogLevel) -> String {
     match loglevel {
         LogLevel::All => "All".to_string(),
@@ -108,8 +138,10 @@ pub fn display_loglevel(loglevel: LogLevel) -> String {
     }
 }
 
-// Connect status are all possible status
-// in a CONNECT_ACK request
+/**
+ * ConnectStatus are all possible status
+ * in a CONNECT_ACK request.
+ */
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum ConnectStatus {
@@ -118,6 +150,13 @@ pub enum ConnectStatus {
     UNKNOWN,
 }
 
+/**
+ * This function convert a ConnectStatus to an u8
+ *
+ * @param value: ConnectStatus, The source to convert
+ *
+ * @return u8
+ */
 impl From<ConnectStatus> for u8 {
     fn from(value: ConnectStatus) -> Self {
         match value {
@@ -128,6 +167,13 @@ impl From<ConnectStatus> for u8 {
     }
 }
 
+/**
+ * This function convert a u8 to a ConnectStatus
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return ConnectStatus
+ */
 impl From<u8> for ConnectStatus {
     fn from(value: u8) -> Self {
         match value {
@@ -139,8 +185,10 @@ impl From<u8> for ConnectStatus {
 }
 
 
-// End connexion reasons are used to
-// detail the reason of the shutdown request.
+/**
+ * End connexion reasons are used to
+ * detail the reason of the shutdown request.
+ */
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum EndConnexionReason {
@@ -149,6 +197,13 @@ pub enum EndConnexionReason {
     UNKNOWN,
 }
 
+/**
+ * This function convert a u8 to an EndConnexionReason
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return EndConnexionReason
+ */
 impl From<u8> for EndConnexionReason {
     fn from(value: u8) -> Self {
         match value {
@@ -159,6 +214,13 @@ impl From<u8> for EndConnexionReason {
     }
 }
 
+/**
+ * This function convert an EndConnexionReason to an u8
+ *
+ * @param value: EndConnexionReason, The source to convert
+ *
+ * @return u8
+ */
 impl From<EndConnexionReason> for u8 {
     fn from(value: EndConnexionReason) -> Self {
         match value {
@@ -169,8 +231,10 @@ impl From<EndConnexionReason> for u8 {
     }
 }
 
-// End connexion reasons are used to
-// detail the reason of the shutdown request.
+/**
+ * Stream type are used to open stream
+ * between the broker and a client.
+ */
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum StreamType {
@@ -180,6 +244,13 @@ pub enum StreamType {
     UNKNOWN,
 }
 
+/**
+ * This function convert a StreamType to an u8
+ *
+ * @param value: StreamType, The source to convert
+ *
+ * @return u8
+ */
 impl From<u8> for StreamType {
     fn from(value: u8) -> Self {
         match value {
@@ -191,6 +262,13 @@ impl From<u8> for StreamType {
     }
 }
 
+/**
+ * This function convert an u8 to an StreamType
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return StreamType
+ */
 impl From<StreamType> for u8 {
     fn from(value: StreamType) -> Self {
         match value {
@@ -202,8 +280,10 @@ impl From<StreamType> for u8 {
     }
 }
 
-// Topics action are all actions that
-// a peer can do in a TOPICS_REQUEST
+/**
+ * Topics action are all actions that
+ * a peer can do in a TOPICS_REQUEST
+ */
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum TopicsAction {
@@ -212,6 +292,13 @@ pub enum TopicsAction {
     UNKNOWN,
 }
 
+/**
+ * This function convert a TopicsAction to an u8
+ *
+ * @param value: TopicsActions, The source to convert
+ *
+ * @return u8
+ */
 impl From<TopicsAction> for u8 {
     fn from(value: TopicsAction) -> Self {
         match value {
@@ -222,6 +309,13 @@ impl From<TopicsAction> for u8 {
     }
 }
 
+/**
+ * This function convert an u8 to a TopicsActions
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return TopicsActions
+ */
 impl From<u8> for TopicsAction {
     fn from(value: u8) -> Self {
         match value {
@@ -232,8 +326,10 @@ impl From<u8> for TopicsAction {
     }
 }
 
-// Topics response are all possible response
-// type to a TOPICS_REQUEST
+/**
+ * Topics response are all possible response
+ * type to a TOPICS_REQUEST
+ */
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum TopicsResponse {
@@ -244,6 +340,13 @@ pub enum TopicsResponse {
     UNKNOWN,
 }
 
+/**
+ * This function convert an TopicsResponse to an u8
+ *
+ * @param value: TopicsResponse, The source to convert
+ *
+ * @return u8
+ */
 impl From<TopicsResponse> for u8 {
     fn from(value: TopicsResponse) -> Self {
         match value {
@@ -256,6 +359,13 @@ impl From<TopicsResponse> for u8 {
     }
 }
 
+/**
+ * This function convert an u8 to a TopicsResponse
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return TopicsResponse
+ */
 impl From<u8> for TopicsResponse {
     fn from(value: u8) -> Self {
         match value {
@@ -268,15 +378,29 @@ impl From<u8> for TopicsResponse {
     }
 }
 
-
+/**
+ * This functions return a bytes slice according to
+ * the given bounds. FROM and TO are include in the returned slice.
+ *
+ * @param buffer: &[u8], the original array,
+ * @param from: usize, first bound,
+ * @param to: usize, last bound,
+ *
+ * @return Vec<u8>, the slice requested
+ */
 pub fn get_bytes_from_slice(
     buffer: &[u8],
     from: usize,
     to: usize
 ) -> Vec<u8> {
-    if to < from {
-        panic!("from is greater than to");
+    // 1 - check bound validity
+    match () {
+        _ if to < from => panic!("from is greater than to"),
+        _ if to >= buffer.len() => panic!("to is greater than the last index"),
+        _ => (),
     }
+
+    // 2 - return the correct slice
     buffer[from..to+1].to_vec()
 }
 
