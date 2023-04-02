@@ -43,13 +43,10 @@ async fn main() {
     let socket = UdpSocket::bind(format!("{}:{}", "0.0.0.0", config.port.parse::<i16>().unwrap())).await.unwrap();
     let socket_ref: ServerSocket = Arc::new(socket);
 
-    // List of clients represented by their address and their ID
-    let clients_ref = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Sender> -> the sender is used to sent command through the mpsc channels
-    let clients_structs: ClientsHashMap<Arc<Mutex<Client>>> = Arc::new(RwLock::new(HashMap::default())); // used only to keep struct alive
-
-    // List of clients address
-    let clients_address: RwLock<HashMap<u64, SocketAddr>> = RwLock::new(HashMap::default()); // <Client ID, address>
-    let clients_address_ref = Arc::new(clients_address);
+    // List of client's :
+    let clients_ref: ClientsHashMap<ClientSender> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Sender> -> the sender is used to sent command through the mpsc channels
+    let clients_structs: ClientsHashMap<Arc<Mutex<Client>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Struct> -> used only to keep struct alive
+    let clients_address_ref: ClientsHashMap<SocketAddr> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, address> -> Used to send data
 
     // List of time reference for ping requests
     let pings_ref: PingsHashMap = Arc::new(Mutex::new(HashMap::default())); // <Ping ID, reference time in ms>
@@ -70,7 +67,7 @@ async fn main() {
     b_running = Arc::from(true);
     let config_ref = config.clone();
 
-    // clone needed value for the first task
+    // clone needed value for the second task
     let datagram_socket = socket_ref.clone();
     let datagram_clients = clients_ref.clone();
     let datagram_clients_address = clients_address_ref.clone();
@@ -114,16 +111,17 @@ async fn main() {
 
 
 /**
-This method handle every incoming datagram in the broker
-@param receiver ServerSocket : An atomic reference of the UDP socket of the server
-@param clients_ref Arc<RwLock<HashMap<u64, ClientSender>> : An atomic reference of the clients HashMap. The map is protected by a rwLock to be thread safe
-@param root_ref Arc<RwLock<TopicV2>> : An atomic reference of root topics, protected by a rwlock to be thread safe
-@param pings_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of the pings time references, protected by a mutex to be thread safe
-@param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a rwLock to be thread safe
-@param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
-@param client_has_heartbeat_ref Arc<RwLock<HashMap<u64, bool>>> : An atomic reference of the clients_heartbeat status.
-
-@return none
+ * This method handle every incoming datagram in the broker and start/stop task
+ * to compute needed data.
+ *
+ * @param receiver: ServerSocket, The server socket use to exchange data
+ * @param clients: ClientsHashMap<ClientSender>, HashMap containing every client channel.
+ * @param clients_addresses: ClientsHashMap<SocketAddr>, HashMap containing every client address.
+ * @param pings: PingsHashMap, hashMap containing every ping references
+ * @param b_running: Arc<bool>, State of the server
+ * @param topics_subscriber: TopicsHashMap<HashSet<ClientId>>, HashMap containing every client Id that are subscribed to a topic.
+ * @param clients_structs: ClientsHashMap<Arc<Mutex<Client>>>, HashMap containing every client struct.
+ * @param config: Arc<Config>, The config reference shared to every task
  */
 async fn datagrams_handler(
     receiver: ServerSocket,
@@ -148,10 +146,10 @@ async fn datagrams_handler(
                 // 4 - if OK match on the first byte (MESSAGE_TYPE)
                 log(Info, DatagramsHandler, format!("Received {} bytes from {}", n, src), config.clone());
 
-                // Get the client id source of the request
+                // 4 - Get the client id source of the request
                 let client_id_found = get_client_id(src, clients_addresses.clone().read().await.to_owned()).await;
                 let mut client_id = 0;
-                // Do not handle the datagram if the source is not auth and is not trying to connect
+                //  5 - Do not handle the datagram if the source is not auth and is not trying to connect
                 if (MessageType::from(buf[0]) != MessageType::CONNECT) && client_id_found.is_none()
                 {
                     log(Warning, DatagramsHandler, format!("Datagrams dropped from {}. Error : Not connected and trying to {}.", src.ip(), display_message_type(MessageType::from(buf[0]))), config.clone());
@@ -167,16 +165,16 @@ async fn datagrams_handler(
                     };
                     let cmd = UpdateClientLastRequest { time: now_ms() };
                     tokio::spawn(async move {
-                        match client_sender.send(cmd).await{
-                            Ok(_)=>{}
-                            Err(_)=> {
+                        match client_sender.send(cmd).await {
+                            Ok(_) => {}
+                            Err(_) => {
                                 return;
                             }
                         };
                     });
                 }
 
-
+                // 6 - Match the datagram type and process it
                 match MessageType::from(buf[0]) {
                     MessageType::CONNECT => {
                         // 4.1 - A user is trying to connect to the server
@@ -190,7 +188,7 @@ async fn datagrams_handler(
                         let clients_structs_ref = clients_structs.clone();
                         let clients_ref = clients.clone();
                         let pings_ref = pings.clone();
-                        tokio::spawn(async move{
+                        tokio::spawn(async move {
                             let (is_connected, current_id) = already_connected(&src.ip(), clients_addresses_ref.read().await).await;
                             let uuid;
                             let result;
@@ -217,7 +215,7 @@ async fn datagrams_handler(
                                 {
                                     let manager_ref = new_client_arc.clone();
                                     let config_ref_task = config_ref.clone();
-                                    tokio::spawn(async move{
+                                    tokio::spawn(async move {
                                         manager_ref.lock().await.manager(config_ref_task).await;
                                     });
                                     let mut map = clients_structs_ref.write().await;
@@ -227,16 +225,13 @@ async fn datagrams_handler(
                                     let mut map_addr = clients_addresses_ref.write().await;
                                     map_addr.insert(uuid, src);
                                 }
-
                             }
                             let sender = {
                                 let map = clients_ref.read().await;
                                 map.get(&uuid).unwrap().clone()
                             };
                             let datagram = &RQ_Connect_ACK_OK::new(uuid, config_ref.heart_beat_period).as_bytes();
-                            result = send_datagram(socket_ref.clone(),datagram,src, sender.clone()).await;
-
-
+                            result = send_datagram(socket_ref.clone(), datagram, src, sender.clone()).await;
 
                             // New client connected spawn a task to start his personal managers
                             if !is_connected {
@@ -249,12 +244,11 @@ async fn datagrams_handler(
                                     server_sender: socket_ref.clone(),
                                 };
 
-
                                 let cmd_sender = sender.clone();
                                 tokio::spawn(async move {
-                                    match cmd_sender.send(cmd).await{
-                                        Ok(_)=>{}
-                                        Err(_)=> {
+                                    match cmd_sender.send(cmd).await {
+                                        Ok(_) => {}
+                                        Err(_) => {
                                             return;
                                         }
                                     };
@@ -265,7 +259,7 @@ async fn datagrams_handler(
                                     socket_ref,
                                     &RQ_Ping::new(get_new_ping_reference(pings_ref, config_ref.clone()).await).as_bytes(),
                                     src,
-                                    sender.clone()
+                                    sender.clone(),
                                 ).await.unwrap();
                             } // End if
                             match result {
@@ -277,7 +271,6 @@ async fn datagrams_handler(
                                 }
                             }
                         });
-
                     }// end connect
                     MessageType::DATA => {
                         // 4.2 - A user is trying to sent data to the server
@@ -295,9 +288,9 @@ async fn datagrams_handler(
                             let map = clients.read().await;
                             map.get(&client_id).unwrap().clone()
                         };
-                        match client_sender.send(cmd).await{
-                            Ok(_)=>{}
-                            Err(_)=> {
+                        match client_sender.send(cmd).await {
+                            Ok(_) => {}
+                            Err(_) => {
                                 return;
                             }
                         };
@@ -314,7 +307,7 @@ async fn datagrams_handler(
                             topics_subscribers: topics_subscribers.clone(),
                             clients_ref: clients.clone(),
                             clients_addresses: clients_addresses.clone(),
-                            clients_structs: clients_structs.clone()
+                            clients_structs: clients_structs.clone(),
                         };
 
                         let client_sender = {
@@ -322,9 +315,9 @@ async fn datagrams_handler(
                             map.get(&client_id).unwrap().clone()
                         };
                         tokio::spawn(async move {
-                            match client_sender.send(cmd).await{
-                                Ok(_)=>{}
-                                Err(_)=> {
+                            match client_sender.send(cmd).await {
+                                Ok(_) => {}
+                                Err(_) => {
                                     return;
                                 }
                             };
@@ -358,9 +351,9 @@ async fn datagrams_handler(
                         };
 
                         tokio::spawn(async move {
-                            match client_sender.send(cmd).await{
-                                Ok(_)=>{}
-                                Err(_)=> {
+                            match client_sender.send(cmd).await {
+                                Ok(_) => {}
+                                Err(_) => {
                                     return;
                                 }
                             };
@@ -385,15 +378,15 @@ async fn datagrams_handler(
                         // send the command :
                         let clients_ref = clients.clone();
                         tokio::spawn(async move {
-                            match clients_ref.read().await.get(&client_id).unwrap().send(cmd).await{
-                                Ok(_)=>{}
-                                Err(_)=> {
+                            match clients_ref.read().await.get(&client_id).unwrap().send(cmd).await {
+                                Ok(_) => {}
+                                Err(_) => {
                                     return;
                                 }
                             };
                         });
                     }
-                    MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING | MessageType::TOPIC_REQUEST_NACK=> {
+                    MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING | MessageType::TOPIC_REQUEST_NACK => {
                         // 4.9 - invalid datagrams for the server
                         log(Warning, DatagramsHandler, format!("{} has sent an invalid datagram.", client_id), config.clone());
                     }
@@ -450,7 +443,7 @@ async fn ping_sender(
                 sender.clone(),
                 &RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(),
                 client_addr,
-                client_sender.clone()
+                client_sender.clone(),
             ).await {
                 Ok(bytes) => {
                     log(Info, PingSender, format!("Send {} bytes to {}", bytes, client_id), config.clone());
