@@ -76,6 +76,11 @@ pub enum ClientActions {
     }
 }
 
+/**
+ * Return the local time since the UNIX_EPOCH in ms
+ *
+ * @return u128, the current time in ms
+ */
 pub fn now_ms() -> u128
 {
     return SystemTime::now()
@@ -84,32 +89,44 @@ pub fn now_ms() -> u128
         .as_millis(); // Current time in ms
 }
 
+/**
+ * This method check if the client has sent a life
+ * signe (sent any request) under the heartbeat period.
+ *
+ * @param client_sender: ClientSender, The client channel used to fire commands
+ * @param config: Arc<Config>, used to access the HEARTBEAT_PERIOD
+ *
+ * @return bool
+ */
 pub async fn client_has_sent_life_sign(
     client_sender: ClientSender,
     config: Arc<Config>
 ) -> bool
 {
+    // 1 - Get the current time
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis();
 
+    // 2 - Spawn a channel and get the
+    // last_request_from_client by using the command
     let (tx, rx) = oneshot::channel();
-
     let cmd = Get {
         key: "last_request_from_client".to_string(),
         resp: tx,
     };
-
-
     match client_sender.send(cmd).await {
         Ok(_)=>{}
         Err(_)=> {
             return false;
         }
     }
+    // 3 - wait for the response
     let last_client_request = rx.await.unwrap().unwrap();
 
+    // 4 - Compute the last time the client should have sent life signe.
+    // = now - Heartbeat_period (in ms)
     let should_have_give_life_sign = now - (config.heart_beat_period*1000 ) as u128;
     log(Warning, ClientManager, format!("Calcul du temps : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign), config);
     // return true if the last request is sooner than the current time minus the heartbeat_period
