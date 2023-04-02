@@ -149,7 +149,7 @@ async fn datagrams_handler(
                 log(Info, DatagramsHandler, format!("Received {} bytes from {}", n, src), config.clone());
 
                 // Get the client id source of the request
-                let client_id_found = get_client_id(&src, clients_addresses.clone().read().await.to_owned()).await;
+                let client_id_found = get_client_id(src, clients_addresses.clone().read().await.to_owned()).await;
                 let mut client_id = 0;
                 // Do not handle the datagram if the source is not auth and is not trying to connect
                 if (MessageType::from(buf[0]) != MessageType::CONNECT) && client_id_found.is_none()
