@@ -9,7 +9,8 @@ mod ps_datagram_structs;
 mod topic;
 mod topic_v2;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     println!("Hiii client !");
         let reg = Regex::new(r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$").unwrap();
 
@@ -49,8 +50,8 @@ fn main() {
         let full_addr = format!("{}:{}", addr.trim(), port.trim());
 
 
-        let mut client = Client::connect(full_addr.clone());
+        let mut client = Client::connect(full_addr.clone()).await;
         println!("your id is : {}",client.get_id());
-        println!("{}", client.create_topic_test().unwrap());
-        client.wait_xd();
+        println!("{}", client.create_topic_test().await.unwrap());
+        client.wait_xd().await;
 }

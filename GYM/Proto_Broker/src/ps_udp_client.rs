@@ -1,21 +1,22 @@
-use std::net::UdpSocket;
+use std::sync::Arc;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
+use tokio::net::UdpSocket;
 
 use crate::ps_datagram_structs::*;
 use crate::ps_common::*;
 
 pub struct Client {
     id: u64,
-    socket: UdpSocket,
+    socket: Arc<UdpSocket>,
     topic_id:u64,
 }
 
 impl Client {
-    pub const fn new(id: u64, stream: UdpSocket) -> Client {
+    pub fn new(id: u64, stream: UdpSocket) -> Client {
         Client {
             id,
-            socket: stream,
+            socket: Arc::new(stream),
             topic_id:0
         }
     }
@@ -23,6 +24,7 @@ impl Client {
     pub fn get_id(&self) -> u64 {
         self.id
     }
+
     fn create_client_from_connect_response(socket: UdpSocket, buffer: &[u8]) -> Client {
         // Get the packet type from the message type
         let message_type = MessageType::from(*buffer.to_vec().first().unwrap());
@@ -59,27 +61,27 @@ impl Client {
             }
         }
     }
-    pub fn create_topic_test(&self) -> std::io::Result<usize> {
+    pub async fn create_topic_test(&self) -> std::io::Result<usize> {
         let topic_rq = RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/home/topix/xd");
-        self.socket.send(&topic_rq.as_bytes())
+        self.socket.send(&topic_rq.as_bytes()).await
     }
 
-    pub fn connect(addr: String) -> Client {
+    pub async fn connect(addr: String) -> Client {
         let addr1 = format!("0.0.0.0:{}", addr.rsplit_once(':').unwrap().1);
         println!("{}", addr1);
-        let ret = UdpSocket::bind("0.0.0.0:3939");
+        let ret = UdpSocket::bind("0.0.0.0:3939").await;
         match ret {
             Ok(socket) => {
                 println!("connected to {}", addr);
                 let socket = socket;
-                socket.connect(addr.clone()).expect("wow");
+                socket.connect(addr.clone()).await;
 
                 // 1 - send Connect datagrams
                 let connect_request = RQ_Connect::new();
-                socket.send(&connect_request.as_bytes()).expect("TODO: panic message");
+                socket.send(&connect_request.as_bytes()).await;
                 // ... server answer with a connect_ack_STATUS
                 let mut buffer = [0; 1024];
-                socket.recv_from(&mut buffer).expect("TODO: panic message");
+                socket.recv_from(&mut buffer).await;
                 return Client::create_client_from_connect_response(socket, &buffer);
             }
             Err(e) => {
@@ -90,7 +92,7 @@ impl Client {
         }
     }
 
-    pub fn wait_xd(&mut self) {
+    pub async fn wait_xd(&mut self) {
         let mut sequence_number = 0;
         self.create_topic_test();
         let random_msg: String = rand::thread_rng()
@@ -98,10 +100,19 @@ impl Client {
             .take(500)
             .map(char::from)
             .collect();
+
+        let socket = self.socket.clone();
+        tokio::spawn(async move{
+            while true {
+                socket.send(&RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/ez/EZ/EZ/EZ/EZ/EZ/EZ/EZ/EZ/EZ").as_bytes()).await;
+                sequence_number +=1;
+            }
+        });
+
         loop {
             let mut buffer = [0; 1024];
             // 2 - Wait for bytes reception
-            match self.socket.recv_from(&mut buffer) {
+            match self.socket.recv_from(&mut buffer).await {
                 // 3 - Once bytes are received, check for errors
                 Ok((n, src)) => {
                     // 4 - if OK match on the first byte (MESSAGE_TYPE)
@@ -119,7 +130,7 @@ impl Client {
                         MessageType::TOPIC_REQUEST => {}
                         MessageType::PING => {
                             // 5.x - Send a immediate response to the server
-                            let result = self.socket.send_to(&RQ_Pong::new(buffer[1]).as_bytes(), src);
+                            let result = self.socket.send_to(&RQ_Pong::new(buffer[1]).as_bytes(), src).await;
                             match result {
                                 Ok(bytes) => {
                                     println!("[Client - Ping] Send {} bytes to server({})", bytes, src.ip());
@@ -152,13 +163,6 @@ impl Client {
                             sequence_number +=1;
                         }
                     }*/
-                    for i in 0..10  {
-                        println!("sent data");
-                        self.socket.send_to(&RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/ez/EZ/EZ/EZ/EZ/EZ/EZ/EZ/EZ/EZ").as_bytes(), src);
-                        sequence_number +=1;
-                    }
-
-
                     //println!("{}", String::from_utf8_lossy(&buf[..n]));
                 }
                 Err(e) => {
@@ -168,8 +172,8 @@ impl Client {
         }
     }
 
-    pub fn send_bytes(&self, bytes: &[u8], remote_addr: &String) -> bool {
-        let size = self.socket.send_to(bytes, remote_addr);
+    pub async fn send_bytes(&self, bytes: &[u8], remote_addr: &String) -> bool {
+        let size = self.socket.send_to(bytes, remote_addr).await;
         if size.is_err() {
             println!("{}", size.unwrap_err());
             return false;

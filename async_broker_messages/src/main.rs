@@ -65,40 +65,41 @@ async fn main() {
     //    Spawning async functions
     // =============================
     b_running = Arc::from(true);
-    let config_ref = config.clone();
+    let (ping_sender, datagram_handler) = { // Closure used to reduce clone lifetime
+        let config_ref = config.clone();
+        // clone needed value for the second task
+        let datagram_socket = socket_ref.clone();
+        let datagram_clients = clients_ref.clone();
+        let datagram_clients_address = clients_address_ref.clone();
+        let datagram_pings = pings_ref.clone();
+        let datagram_b_running = b_running.clone();
+        let datagram_config = config_ref.clone();
 
-    // clone needed value for the second task
-    let datagram_socket = socket_ref.clone();
-    let datagram_clients = clients_ref.clone();
-    let datagram_clients_address = clients_address_ref.clone();
-    let datagram_pings = pings_ref.clone();
-    let datagram_b_running = b_running.clone();
-    let datagram_config = config_ref.clone();
-
-    let ping_sender = tokio::spawn(async move {
-        ping_sender(
-            socket_ref.clone(),
-            clients_address_ref.clone(),
-            clients_ref.clone(),
-            pings_ref.clone(),
-            b_running.clone(),
-            config_ref.clone(),
-        ).await;
-    });
-    // ... and then spawn the second task
-    let datagram_handler = tokio::spawn(async move {
-        datagrams_handler(
-            datagram_socket,
-            datagram_clients,
-            datagram_clients_address,
-            datagram_pings,
-            datagram_b_running,
-            topics_subscribers_ref.clone(),
-            clients_structs.clone(),
-            datagram_config,
-        ).await;
-    });
-
+        let ping_sender = tokio::spawn(async move {
+            ping_sender(
+                socket_ref,
+                clients_address_ref,
+                clients_ref,
+                pings_ref,
+                b_running,
+                config_ref,
+            ).await;
+        });
+        // ... and then spawn the second task
+        let datagram_handler = tokio::spawn(async move {
+            datagrams_handler(
+                datagram_socket,
+                datagram_clients,
+                datagram_clients_address,
+                datagram_pings,
+                datagram_b_running,
+                topics_subscribers_ref,
+                clients_structs,
+                datagram_config,
+            ).await;
+        });
+        (ping_sender, datagram_handler)
+    };
 
     log(Info, Other, format!("Server is running ..."), config.clone());
 
