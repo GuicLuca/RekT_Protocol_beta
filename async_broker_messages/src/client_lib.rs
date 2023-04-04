@@ -11,7 +11,7 @@ use tokio::sync::{Mutex, oneshot};
 
 use crate::client::Client;
 use crate::client_lib::ClientActions::Get;
-use crate::config::Config;
+use crate::CONFIG;
 use crate::config::LogLevel::Warning;
 use crate::server_lib::log;
 use crate::server_lib::LogSource::ClientManager;
@@ -35,7 +35,6 @@ pub enum ClientActions {
         clients: ClientsHashMap<ClientSender>,
         clients_addresses: ClientsHashMap<SocketAddr>,
         topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
-        config: &'static Arc<Config>,
     },
     AddSubscribedTopic{
         topic_id: TopicId
@@ -94,13 +93,11 @@ pub fn now_ms() -> u128
  * signe (sent any request) under the heartbeat period.
  *
  * @param client_sender: ClientSender, The client channel used to fire commands
- * @param config: &Arc<Config>, used to access the HEARTBEAT_PERIOD
  *
  * @return bool
  */
 pub async fn client_has_sent_life_sign(
     client_sender: ClientSender,
-    config: &Arc<Config>
 ) -> bool
 {
     // 1 - Get the current time
@@ -127,8 +124,8 @@ pub async fn client_has_sent_life_sign(
 
     // 4 - Compute the last time the client should have sent life signe.
     // = now - Heartbeat_period (in ms)
-    let should_have_give_life_sign = now - (config.heart_beat_period*1000 ) as u128;
-    log(Warning, ClientManager, format!("Calcul du temps : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign), config);
+    let should_have_give_life_sign = now - (CONFIG.heart_beat_period*1000 ) as u128;
+    log(Warning, ClientManager, format!("Calcul du temps : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign));
     // return true if the last request is sooner than the current time minus the heartbeat_period
     return last_client_request >= should_have_give_life_sign;
 }

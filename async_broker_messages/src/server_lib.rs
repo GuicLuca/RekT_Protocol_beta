@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use rand::Rng;
 
@@ -8,7 +7,8 @@ use tokio::sync::{RwLockReadGuard};
 
 use crate::client_lib::{now_ms};
 use crate::client_lib::ClientActions::{UpdateServerLastRequest};
-use crate::config::{Config, LogLevel};
+use crate::CONFIG;
+use crate::config::{LogLevel};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::LogSource::*;
@@ -35,45 +35,43 @@ pub enum LogSource {
  * @param log_level: LogLevel, The level of importance of the message.
  * @param log_source: LogSource, The source of the message.
  * @param message: String, The message to print.
- * @param config: &Arc<Config>, The config reference.
  */
 pub fn log(
     log_level: LogLevel,
     log_source: LogSource,
-    message: String,
-    config: &Arc<Config>,
+    message: String
 ) {
-    // If log level is under config log level do not show the message
-    if log_level < config.debug_level { return; }
+    // If log level is under CONFIG log level do not show the message
+    if log_level < CONFIG.debug_level { return; }
 
-    // For each case, check if the source is allowed by the configuration
+    // For each case, check if the source is allowed by the CONFIGuration
     // and then, print the message.
     match log_source {
         DatagramsHandler => {
-            if !config.debug_datagram_handler { return; }
+            if !CONFIG.debug_datagram_handler { return; }
             println!("[Server - DatagramHandler] {}: {}", display_loglevel(log_level), message);
         }
         PingSender => {
-            if !config.debug_ping_sender { return; }
+            if !CONFIG.debug_ping_sender { return; }
             println!("[Server - PingSender] {}: {}", display_loglevel(log_level), message);
         }
         DataHandler => {
-            if !config.debug_data_handler { return; }
+            if !CONFIG.debug_data_handler { return; }
             println!("[Server - DataHandler] {}: {}", display_loglevel(log_level), message);
         }
         HeartbeatChecker => {
-            if !config.debug_heartbeat_checker { return; }
+            if !CONFIG.debug_heartbeat_checker { return; }
             println!("[Server - HeartbeatChecker] {}: {}", display_loglevel(log_level), message);
         }
         TopicHandler => {
-            if !config.debug_topic_handler { return; }
+            if !CONFIG.debug_topic_handler { return; }
             println!("[Server - TopicHandler] {}: {}", display_loglevel(log_level), message);
         }
         Other => {
             println!("[Server] {}", message);
         }
         ClientManager => {
-            if !config.debug_topic_handler { return; }
+            if !CONFIG.debug_topic_handler { return; }
             println!("[Server - ClientManger] {}: {}", display_loglevel(log_level), message);
         }
     }
@@ -183,14 +181,12 @@ fn get_new_ping_id() -> u8 {
  * This method generate a new ping id and save the current time
  * as the "reference time" to compute the round trip later.
  *
- * @param pings: PingsHashMap, The HashMap that contain every ping reference
- * @param config: &Arc<Config>, The config used to print logs.
+ * @param pings: PingsHashMap, The HashMap that contain every ping reference.
  *
  * @return u8, The new ping id.
  */
 pub async fn get_new_ping_reference(
-    pings: PingsHashMap,
-    config: &Arc<Config>
+    pings: PingsHashMap
 ) -> u8 {
     // 1 - Generate a new unique id
     let key = get_new_ping_id();
@@ -203,7 +199,7 @@ pub async fn get_new_ping_reference(
 
     // 3 - Save it into the array
     pings.lock().await.insert(key, time);
-    log(Info, PingSender, format!("New ping reference created. Id : {}", key), &config);
+    log(Info, PingSender, format!("New ping reference created. Id : {}", key));
 
     // 4 - Return the id
     return key;

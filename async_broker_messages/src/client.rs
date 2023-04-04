@@ -16,7 +16,7 @@ use tokio::time::sleep;
 
 use crate::client_lib::{client_has_sent_life_sign, ClientActions, now_ms};
 use crate::client_lib::ClientActions::*;
-use crate::config::Config;
+use crate::CONFIG;
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::*;
@@ -77,9 +77,8 @@ impl Client {
      */
     pub async fn save_client_request_timestamp(&mut self,
                                                time: u128,
-                                               config: &Arc<Config>,
     ) {
-        log(Info, ClientManager, format!("Last client request time updated for client {}", self.id), &config);
+        log(Info, ClientManager, format!("Last client request time updated for client {}", self.id));
         self.last_request_from_client = time;
     }
 
@@ -91,9 +90,8 @@ impl Client {
      */
     pub async fn save_server_request_timestamp(&mut self,
                                                time: u128,
-                                               config: &Arc<Config>,
     ) {
-        log(Info, ClientManager, format!("Last server request time updated for client {}", self.id), &config);
+        log(Info, ClientManager, format!("Last server request time updated for client {}", self.id));
         self.last_request_from_server = time;
     }
 
@@ -104,11 +102,9 @@ impl Client {
      *
      * @param config: &Arc<Config>
      */
-    pub async fn manager(&mut self,
-                         config: &'static Arc<Config>,
-    )
+    pub async fn manager(&mut self)
     {
-        log(Info, ClientManager, format!("Manager spawned for client {}", self.id), &config);
+        log(Info, ClientManager, format!("Manager spawned for client {}", self.id));
 
         // 1 - while client is alive ...
         loop {
@@ -144,7 +140,6 @@ impl Client {
                         clients,
                         clients_addresses,
                         topics_subscribers,
-                        config,
                     } => {
                         // 1 - clone local variables to give theme to the tokio task
                         let requests_counter_ref = self.requests_counter.clone();
@@ -161,21 +156,21 @@ impl Client {
                                         && data_rq.sequence_number > 50 // this condition allow circle id (id 0..49 will override MAX_ID)
                                     {
                                         // Request is out-dated or the topic is unknown
-                                        log(Warning, DataHandler, format!("Client {} sent a data with a sequence number lower than the last one", client_id), &config);
+                                        log(Warning, DataHandler, format!("Client {} sent a data with a sequence number lower than the last one", client_id));
                                         return;
                                     }
                                 }
 
                                 // New request, update the last request id / or insert it if the topic_id is unknown
                                 write_rq_counter_ref.insert(data_rq.topic_id, data_rq.sequence_number);
-                                log(Info, DataHandler, format!("New data sequence for client {}.", client_id), &config);
+                                log(Info, DataHandler, format!("New data sequence for client {}.", client_id));
                             }
 
                             // 3 - get a list of interested clients
                             let mut interested_clients = {
                                 let read_client_topics = topics_subscribers.read().await;
                                 if !read_client_topics.contains_key(&data_rq.topic_id) {
-                                    log(Warning, DataHandler, format!("Topic {} doesn't exist", data_rq.topic_id), &config);
+                                    log(Warning, DataHandler, format!("Topic {} doesn't exist", data_rq.topic_id));
                                     return;
                                 }
 
@@ -197,7 +192,7 @@ impl Client {
                                 };
                                 let result = send_datagram(sender.clone(), &data, client_addr, client_sender).await;
 
-                                log(Info, DataHandler, format!("Data propagation : Sent {} bytes to {}", result.unwrap(), client_addr), &config);
+                                log(Info, DataHandler, format!("Data propagation : Sent {} bytes to {}", result.unwrap(), client_addr));
                             }
                         });
                     }
@@ -219,15 +214,15 @@ impl Client {
                         }
                         // 4 - set the ping for the client
                         self.ping = round_trip;
-                        log(Info, ClientManager, format!("There is {}ms of ping between {} and the server", round_trip, self.id), &config);
+                        log(Info, ClientManager, format!("There is {}ms of ping between {} and the server", round_trip, self.id));
                     }
 
                     // The two following command update last interaction in the client and server sens
                     UpdateServerLastRequest { time } => {
-                        self.save_server_request_timestamp(time, &config).await;
+                        self.save_server_request_timestamp(time).await;
                     }
                     UpdateClientLastRequest { time } => {
-                        self.save_client_request_timestamp(time, &config).await;
+                        self.save_client_request_timestamp(time).await;
                     }
 
                     // This command clear client data and stop client's task
@@ -268,7 +263,7 @@ impl Client {
                             {
                                 clients_structs.write().await.remove(&id);
                             }
-                            log(Info, Other, format!("Disconnection of client {}", id), &config);
+                            log(Info, Other, format!("Disconnection of client {}", id));
                         });
                     }
 
@@ -288,7 +283,7 @@ impl Client {
                         let socket = self.socket;
                         let clients_ref = clients.clone();
                         tokio::spawn(async move {
-                            heartbeat_manager(id, socket, clients_ref, topics_subscribers, clients_addresses, clients_structs, b_running, server_sender_ref, &config).await;
+                            heartbeat_manager(id, socket, clients_ref, topics_subscribers, clients_addresses, clients_structs, b_running, server_sender_ref).await;
                         });
                     }
 
@@ -347,10 +342,10 @@ impl Client {
 
                                         match result {
                                             Ok(_) => {
-                                                log(Info, TopicHandler, format!("{} has successfully sub the topic {}", client_id, topic_hash), &config);
+                                                log(Info, TopicHandler, format!("{} has successfully sub the topic {}", client_id, topic_hash));
                                             }
                                             Err(error) => {
-                                                log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error), &config);
+                                                log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error));
                                             }
                                         }
                                     } else {
@@ -364,10 +359,10 @@ impl Client {
 
                                         match result {
                                             Ok(_) => {
-                                                log(Info, TopicHandler, format!("{} has failed sub the topic {} (ALREADY SUB)", client_id, topic_hash), &config);
+                                                log(Info, TopicHandler, format!("{} has failed sub the topic {} (ALREADY SUB)", client_id, topic_hash));
                                             }
                                             Err(error) => {
-                                                log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error), &config);
+                                                log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error));
                                             }
                                         }
                                     }
@@ -400,10 +395,10 @@ impl Client {
 
                                     match result {
                                         Ok(_) => {
-                                            log(Info, TopicHandler, format!("{} has successfully unsub the topic {}", client_id, topic_hash), &config);
+                                            log(Info, TopicHandler, format!("{} has successfully unsub the topic {}", client_id, topic_hash));
                                         }
                                         Err(error) => {
-                                            log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error), &config);
+                                            log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error));
                                         }
                                     }
                                 }
@@ -442,7 +437,6 @@ impl Client {
  * @param clients_structs: ClientsHashMap<Arc<Mutex<Client>>>, HashMap containing every client struct. Used by the disconnect method.
  * @param b_running: Arc<bool>, State of the server
  * @param server_sender: ServerSocket, the server socket used to exchange data
- * @param config: &Arc<Config>, The config reference used to access to the heartbeat period
  */
 pub async fn heartbeat_manager(
     id: ClientId,
@@ -453,9 +447,8 @@ pub async fn heartbeat_manager(
     clients_structs: ClientsHashMap<Arc<Mutex<Client>>>,
     b_running: Arc<bool>,
     server_sender: ServerSocket,
-    config: &Arc<Config>,
 ) {
-    log(Info, HeartbeatChecker, format!("HeartbeatChecker spawned for {}", id), &config);
+    log(Info, HeartbeatChecker, format!("HeartbeatChecker spawned for {}", id));
     // 1 - Init local variables
     let mut missed_heartbeats: u8 = 0; // used to count how many HB are missing
     let client_sender = {
@@ -465,14 +458,14 @@ pub async fn heartbeat_manager(
     // 2 - Loop while server is running and client is online
     while *b_running && is_online(id, clients.clone()).await {
         // 3 - waite for the heartbeat period
-        sleep(Duration::from_secs(config.heart_beat_period as u64)).await;
+        sleep(Duration::from_secs(CONFIG.heart_beat_period as u64)).await;
 
 
         // 4 - check if client has sent heartbeat
-        if !client_has_sent_life_sign(client_sender.clone(), &config).await {
+        if !client_has_sent_life_sign(client_sender.clone()).await {
             //  5 - increase the missing packet
             missed_heartbeats += 1;
-            log(Info, HeartbeatChecker, format!("{} hasn't sent life signs {} times", id, missed_heartbeats), &config);
+            log(Info, HeartbeatChecker, format!("{} hasn't sent life signs {} times", id, missed_heartbeats));
             if missed_heartbeats == 2 {
                 // 6 - send an heartbeat request
                 let result = send_datagram(
@@ -485,10 +478,10 @@ pub async fn heartbeat_manager(
 
                 match result {
                     Ok(bytes) => {
-                        log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, id), &config);
+                        log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, id));
                     }
                     Err(error) => {
-                        log(Error, HeartbeatChecker, format!("Failed to send RQ_HeartBeat_Request to {}. \nError: {}", id, error), &config);
+                        log(Error, HeartbeatChecker, format!("Failed to send RQ_HeartBeat_Request to {}. \nError: {}", id, error));
                     }
                 }
             } else if missed_heartbeats == 4 {
@@ -503,10 +496,10 @@ pub async fn heartbeat_manager(
 
                 match result {
                     Ok(bytes) => {
-                        log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, id), &config);
+                        log(Info, HeartbeatChecker, format!("Send {} bytes (RQ_Heartbeat_Request) to {}", bytes, id));
                     }
                     Err(error) => {
-                        log(Error, HeartbeatChecker, format!("Failed to send RQ_Shutdown to {}. \nError: {}", id, error), &config);
+                        log(Error, HeartbeatChecker, format!("Failed to send RQ_Shutdown to {}. \nError: {}", id, error));
                     }
                 }
 
@@ -538,15 +531,15 @@ pub async fn heartbeat_manager(
 
             match result {
                 Ok(_) => {
-                    log(Info, HeartbeatChecker, format!("Respond to client bytes (HeartBeat) to {}", id), &config);
+                    log(Info, HeartbeatChecker, format!("Respond to client bytes (HeartBeat) to {}", id));
                 }
                 Err(error) => {
-                    log(Error, HeartbeatChecker, format!("Failed to send RQ_HeartBeat to {}.\nError: {}", id, error), &config);
+                    log(Error, HeartbeatChecker, format!("Failed to send RQ_HeartBeat to {}.\nError: {}", id, error));
                 }
             }
         }
     }
 
     // 9 - End the task
-    log(Info, HeartbeatChecker, format!("Heartbeat checker destroyed for {}", id), &config);
+    log(Info, HeartbeatChecker, format!("Heartbeat checker destroyed for {}", id));
 }
