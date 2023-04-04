@@ -111,6 +111,13 @@ impl Client {
                 sequence_number +=1;
             }
         });
+        let socket = self.socket.clone();
+        tokio::spawn(async move{
+            while true {
+                socket.send(&RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/AZ/AZ/AZ/EZ/EJHGFHGFZ/EJHGJHZ/EZ/ENFGHFDZ/EZ/EZ").as_bytes()).await;
+                sequence_number +=1;
+            }
+        });
 
         loop {
             let mut buffer = [0; 1024];
