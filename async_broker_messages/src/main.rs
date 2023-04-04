@@ -29,7 +29,17 @@ mod types;
 use lazy_static::lazy_static;
 
 lazy_static! {
-    static ref CONFIG: Config = Config::new();
+    static ref CONFIG: Config = Config::new(); // Unique reference to the config object
+    // List of client's :
+    static ref CLIENTS_SENDERS_REF: ClientsHashMap<ClientSender> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Sender> -> the sender is used to sent command through the mpsc channels
+    static ref CLIENTS_STRUCTS_REF: ClientsHashMap<Arc<Mutex<Client>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Struct> -> used only to keep struct alive
+    static ref CLIENTS_ADDRESSES_REF: ClientsHashMap<SocketAddr> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, address> -> Used to send data
+
+    // List of time reference for ping requests
+    static ref PINGS_REF: PingsHashMap = Arc::new(Mutex::new(HashMap::default())); // <Ping ID, reference time in ms>
+
+    // List of topic subscribers
+    static ref TOPICS_SUBSCRIBERS_REF: TopicsHashMap<HashSet<ClientId>> = Arc::new(RwLock::new(HashMap::default())); // <Topic ID, [Clients ID]>
 }
 
 #[tokio::main]
@@ -48,20 +58,6 @@ async fn main() {
     let socket = UdpSocket::bind(format!("{}:{}", "0.0.0.0", &CONFIG.port.parse::<i16>().unwrap())).await.unwrap();
     let socket_ref: ServerSocket = Arc::new(socket);
 
-    // List of client's :
-    let clients_ref: ClientsHashMap<ClientSender> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Sender> -> the sender is used to sent command through the mpsc channels
-    let clients_structs: ClientsHashMap<Arc<Mutex<Client>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Struct> -> used only to keep struct alive
-    let clients_address_ref: ClientsHashMap<SocketAddr> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, address> -> Used to send data
-
-    // List of time reference for ping requests
-    let pings_ref: PingsHashMap = Arc::new(Mutex::new(HashMap::default())); // <Ping ID, reference time in ms>
-
-    // List of topic subscribers
-    let topics_subscribers_ref: TopicsHashMap<HashSet<ClientId>> = Arc::new(RwLock::new(HashMap::default())); // <Topic ID, [Clients ID]>
-
-    // Root topic which can be subscribed by clients
-    // Every topics have sub topic to them, you can go through each one like in a tree
-    //let objects_topic: TopicsHashMap<HashSet<ClientId>> = Arc::new(RwLock::new(HashMap::new()));
 
 
     log(Info, Other, format!("Server variables successfully initialized"));
@@ -73,17 +69,11 @@ async fn main() {
     let (ping_sender, datagram_handler) = { // Closure used to reduce clone lifetime
         // clone needed value for the second task
         let datagram_socket = socket_ref.clone();
-        let datagram_clients = clients_ref.clone();
-        let datagram_clients_address = clients_address_ref.clone();
-        let datagram_pings = pings_ref.clone();
         let datagram_b_running = b_running.clone();
 
         let ping_sender = tokio::spawn(async move {
             ping_sender(
                 socket_ref,
-                clients_address_ref,
-                clients_ref,
-                pings_ref,
                 b_running,
             ).await;
         });
@@ -91,12 +81,7 @@ async fn main() {
         let datagram_handler = tokio::spawn(async move {
             datagrams_handler(
                 datagram_socket,
-                datagram_clients,
-                datagram_clients_address,
-                datagram_pings,
                 datagram_b_running,
-                topics_subscribers_ref,
-                clients_structs,
             ).await;
         });
         (ping_sender, datagram_handler)
@@ -117,22 +102,11 @@ async fn main() {
  * to compute needed data.
  *
  * @param receiver: ServerSocket, The server socket use to exchange data
- * @param clients: ClientsHashMap<ClientSender>, HashMap containing every client channel.
- * @param clients_addresses: ClientsHashMap<SocketAddr>, HashMap containing every client address.
- * @param pings: PingsHashMap, hashMap containing every ping references
  * @param b_running: Arc<bool>, State of the server
- * @param topics_subscriber: TopicsHashMap<HashSet<ClientId>>, HashMap containing every client Id that are subscribed to a topic.
- * @param clients_structs: ClientsHashMap<Arc<Mutex<Client>>>, HashMap containing every client struct.
- * @param config: &Arc<Config>, The config reference shared to every task
  */
 async fn datagrams_handler(
     receiver: ServerSocket,
-    clients: ClientsHashMap<ClientSender>,
-    clients_addresses: ClientsHashMap<SocketAddr>,
-    pings: PingsHashMap,
     b_running: Arc<bool>,
-    topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
-    clients_structs: ClientsHashMap<Arc<Mutex<Client>>>,
 ) {
     log(Info, DatagramsHandler, format!("Datagrams Handler spawned"));
     // infinite loop receiving listening for datagrams
@@ -148,7 +122,7 @@ async fn datagrams_handler(
                 log(Info, DatagramsHandler, format!("Received {} bytes from {}", n, src));
 
                 // 4 - Get the client id source of the request
-                let client_id_found = get_client_id(src, clients_addresses.clone().read().await.to_owned()).await;
+                let client_id_found = get_client_id(src).await;
                 let mut client_id = 0;
                 //  5 - Do not handle the datagram if the source is not auth and is not trying to connect
                 if (MessageType::from(buf[0]) != MessageType::CONNECT) && client_id_found.is_none()
@@ -161,7 +135,7 @@ async fn datagrams_handler(
 
                     // update his last time he sent a request
                     let client_sender = {
-                        let map = clients.read().await;
+                        let map = CLIENTS_SENDERS_REF.read().await;
                         map.get(&client_id).unwrap().clone()
                     };
                     let cmd = UpdateClientLastRequest { time: now_ms() };
@@ -183,13 +157,8 @@ async fn datagrams_handler(
 
                         let b_running_ref = b_running.clone();
                         let socket_ref = receiver.clone();
-                        let clients_addresses_ref = clients_addresses.clone();
-                        let topics_subscribers_ref = topics_subscribers.clone();
-                        let clients_structs_ref = clients_structs.clone();
-                        let clients_ref = clients.clone();
-                        let pings_ref = pings.clone();
                         tokio::spawn(async move {
-                            let (is_connected, current_id) = already_connected(&src.ip(), clients_addresses_ref.read().await).await;
+                            let (is_connected, current_id) = already_connected(&src.ip(), CLIENTS_ADDRESSES_REF.read().await).await;
                             let uuid;
                             let result;
 
@@ -209,7 +178,7 @@ async fn datagrams_handler(
 
                                 // 3.2 - fill server arrays to keep in memory the connection
                                 {
-                                    let mut map = clients_ref.write().await;
+                                    let mut map = CLIENTS_SENDERS_REF.write().await;
                                     map.insert(uuid, sender);
                                 }
                                 {
@@ -217,16 +186,16 @@ async fn datagrams_handler(
                                     tokio::spawn(async move {
                                         manager_ref.lock().await.manager().await;
                                     });
-                                    let mut map = clients_structs_ref.write().await;
+                                    let mut map = CLIENTS_STRUCTS_REF.write().await;
                                     map.insert(uuid, new_client_arc);
                                 }
                                 {
-                                    let mut map_addr = clients_addresses_ref.write().await;
+                                    let mut map_addr = CLIENTS_ADDRESSES_REF.write().await;
                                     map_addr.insert(uuid, src);
                                 }
                             }
                             let sender = {
-                                let map = clients_ref.read().await;
+                                let map = CLIENTS_SENDERS_REF.read().await;
                                 map.get(&uuid).unwrap().clone()
                             };
                             let datagram = &RQ_Connect_ACK_OK::new(uuid, CONFIG.heart_beat_period).as_bytes();
@@ -235,10 +204,6 @@ async fn datagrams_handler(
                             // New client connected spawn a task to start his personal managers
                             if !is_connected {
                                 let cmd = StartManagers {
-                                    clients: clients_ref,
-                                    topics_subscribers: topics_subscribers_ref,
-                                    clients_addresses: clients_addresses_ref,
-                                    clients_structs: clients_structs_ref,
                                     b_running: b_running_ref,
                                     server_sender: socket_ref.clone(),
                                 };
@@ -256,7 +221,7 @@ async fn datagrams_handler(
                                 // init his ping with this request:
                                 send_datagram(
                                     socket_ref,
-                                    &RQ_Ping::new(get_new_ping_reference(pings_ref).await).as_bytes(),
+                                    &RQ_Ping::new(get_new_ping_reference().await).as_bytes(),
                                     src,
                                     sender.clone(),
                                 ).await.unwrap();
@@ -278,12 +243,9 @@ async fn datagrams_handler(
                         let cmd = HandleData {
                             sender: receiver.clone(),
                             buffer: buf,
-                            clients: clients.clone(),
-                            clients_addresses: clients_addresses.clone(),
-                            topics_subscribers: topics_subscribers.clone(),
                         };
                         let client_sender = {
-                            let map = clients.read().await;
+                            let map = CLIENTS_SENDERS_REF.read().await;
                             map.get(&client_id).unwrap().clone()
                         };
                         match client_sender.send(cmd).await {
@@ -301,15 +263,10 @@ async fn datagrams_handler(
                         // 4.4 - A user is trying to shutdown the connexion with the server
                         log(Info, DatagramsHandler, format!("{} is trying to shutdown the connexion with the server", client_id));
 
-                        let cmd = HandleDisconnect {
-                            topics_subscribers: topics_subscribers.clone(),
-                            clients_ref: clients.clone(),
-                            clients_addresses: clients_addresses.clone(),
-                            clients_structs: clients_structs.clone(),
-                        };
+                        let cmd = HandleDisconnect {};
 
                         let client_sender = {
-                            let map = clients.read().await;
+                            let map = CLIENTS_SENDERS_REF.read().await;
                             map.get(&client_id).unwrap().clone()
                         };
                         tokio::spawn(async move {
@@ -338,13 +295,12 @@ async fn datagrams_handler(
                         log(Info, DatagramsHandler, format!("{} is trying to request a new topic", client_id));
 
                         let client_sender = {
-                            let map = clients.read().await;
+                            let map = CLIENTS_SENDERS_REF.read().await;
                             map.get(&client_id).unwrap().clone()
                         };
                         let cmd = HandleTopicRequest {
                             server_socket: receiver.clone(),
                             buffer: buf,
-                            topics_subscribers: topics_subscribers.clone(),
                             client_sender: client_sender.clone(),
                         };
 
@@ -366,15 +322,14 @@ async fn datagrams_handler(
                             .as_millis(); // Current time in ms
 
                         // If the client is offline, don't compute the request
-                        if !is_online(client_id, clients.clone()).await { continue; };
+                        if !is_online(client_id).await { continue; };
 
                         let cmd = HandlePong {
                             ping_id: buf[1],
                             current_time: time,
-                            pings_ref: pings.clone(),
                         };
                         // send the command :
-                        let clients_ref = clients.clone();
+                        let clients_ref = CLIENTS_SENDERS_REF.clone();
                         tokio::spawn(async move {
                             match clients_ref.read().await.get(&client_id).unwrap().send(cmd).await {
                                 Ok(_) => {}
@@ -400,45 +355,38 @@ async fn datagrams_handler(
     }
 }
 
-/** TODO : doc
+/**
 This method send ping request to every connected clients
 @param sender ServerSocket : An atomic reference of the UDP socket of the server
-@param client_id u64 : The client identifier.
-@param clients: ClientsHashMap<SocketAddr> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
-@param pings PingsHashMap : An atomic reference of the pings HashMap. The map is protected by a mutex to be thread safe
 @param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
-@param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a mutex to be thread safe
 
 @return None
  */
 async fn ping_sender(
     sender: ServerSocket,
-    clients_address: ClientsHashMap<SocketAddr>,
-    clients_senders: ClientsHashMap<ClientSender>,
-    pings: PingsHashMap,
     b_running: Arc<bool>,
 ) {
     log(Info, PingSender, format!("Ping sender spawned"));
     while *b_running {
         // get all connected ids:
         let ids: Vec<ClientId> = {
-            clients_address.read().await.keys().map(|s| *s).collect()
+            CLIENTS_ADDRESSES_REF.read().await.keys().map(|s| *s).collect()
         };
 
         for client_id in ids {
             let client_sender = {
-                let map = clients_senders.read().await;
+                let map = CLIENTS_SENDERS_REF.read().await;
                 map.get(&client_id).unwrap().clone()
             };
             let client_addr = {
-                let map = clients_address.read().await;
+                let map = CLIENTS_ADDRESSES_REF.read().await;
                 map.get(&client_id).unwrap().clone()
             };
 
             // 2 - Send a ping request to the client
             match send_datagram(
                 sender.clone(),
-                &RQ_Ping::new(get_new_ping_reference(pings.clone()).await).as_bytes(),
+                &RQ_Ping::new(get_new_ping_reference().await).as_bytes(),
                 client_addr,
                 client_sender.clone(),
             ).await {

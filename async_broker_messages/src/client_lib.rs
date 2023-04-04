@@ -2,20 +2,17 @@
 // @author : GuicLuca (lucasguichard127@gmail.com)
 // date : 22/03/2023
 
-use std::collections::{HashSet};
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{oneshot};
 
-use crate::client::Client;
 use crate::client_lib::ClientActions::Get;
 use crate::CONFIG;
 use crate::config::LogLevel::Warning;
 use crate::server_lib::log;
 use crate::server_lib::LogSource::ClientManager;
-use crate::types::{ClientId, ClientSender, ClientsHashMap, PingsHashMap, Responder, ServerSocket, TopicId, TopicsHashMap};
+use crate::types::{ClientSender,Responder, ServerSocket, TopicId};
 
 
 /**
@@ -32,9 +29,6 @@ pub enum ClientActions {
     HandleData {
         sender: ServerSocket,
         buffer: [u8; 1024],
-        clients: ClientsHashMap<ClientSender>,
-        clients_addresses: ClientsHashMap<SocketAddr>,
-        topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
     },
     AddSubscribedTopic{
         topic_id: TopicId
@@ -43,10 +37,6 @@ pub enum ClientActions {
         topic_id: TopicId
     },
     StartManagers{
-        clients: ClientsHashMap<ClientSender>,
-        topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
-        clients_addresses: ClientsHashMap<SocketAddr>,
-        clients_structs: ClientsHashMap<Arc<Mutex<Client>>>,
         b_running: Arc<bool>,
         server_sender: ServerSocket
     },
@@ -59,19 +49,13 @@ pub enum ClientActions {
     HandlePong {
         ping_id: u8, // The ping request that is answered
         current_time: u128, // Server time when the request has been received
-        pings_ref: PingsHashMap, // contain all ping request sent by the server
     },
     HandleTopicRequest{
         server_socket: ServerSocket,
         buffer: [u8; 1024],
-        topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
         client_sender: ClientSender
     },
     HandleDisconnect{
-        topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
-        clients_ref: ClientsHashMap<ClientSender>,
-        clients_addresses: ClientsHashMap<SocketAddr>,
-        clients_structs: ClientsHashMap<Arc<Mutex<Client>>>
     }
 }
 

@@ -7,12 +7,12 @@ use tokio::sync::{RwLockReadGuard};
 
 use crate::client_lib::{now_ms};
 use crate::client_lib::ClientActions::{UpdateServerLastRequest};
-use crate::CONFIG;
+use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CONFIG, PINGS_REF};
 use crate::config::{LogLevel};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::LogSource::*;
-use crate::types::{ClientId, ClientSender, ClientsHashMap, PingsHashMap, ServerSocket, TopicId};
+use crate::types::{ClientId, ClientSender, ServerSocket, TopicId};
 
 /**
  * LogSource are used to display prefix and filter log messages.
@@ -131,10 +131,9 @@ pub fn get_new_id() -> ClientId {
  */
 pub async fn get_client_id(
     src: SocketAddr,
-    clients_addresses: HashMap<u64, SocketAddr>,
 ) -> Option<ClientId> {
     // Use the iterator for performance.
-    clients_addresses
+    CLIENTS_ADDRESSES_REF.read().await
         .iter()
         .find_map(|(&key, &addr)| if addr == src { Some(key) } else { None })
 }
@@ -185,9 +184,7 @@ fn get_new_ping_id() -> u8 {
  *
  * @return u8, The new ping id.
  */
-pub async fn get_new_ping_reference(
-    pings: PingsHashMap
-) -> u8 {
+pub async fn get_new_ping_reference() -> u8 {
     // 1 - Generate a new unique id
     let key = get_new_ping_id();
 
@@ -198,7 +195,7 @@ pub async fn get_new_ping_reference(
         .as_millis(); // Current time in ms
 
     // 3 - Save it into the array
-    pings.lock().await.insert(key, time);
+    PINGS_REF.lock().await.insert(key, time);
     log(Info, PingSender, format!("New ping reference created. Id : {}", key));
 
     // 4 - Return the id
@@ -216,10 +213,9 @@ pub async fn get_new_ping_reference(
  */
 pub async fn is_online(
     client_id: ClientId,
-    clients: ClientsHashMap<ClientSender>,
 ) -> bool
 {
-    let clients_read = clients.read().await;
+    let clients_read = CLIENTS_SENDERS_REF.read().await;
     return clients_read.contains_key(&client_id);
 }
 

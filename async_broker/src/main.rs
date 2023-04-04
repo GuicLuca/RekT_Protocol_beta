@@ -59,7 +59,7 @@ async fn main() {
 
     // List of clients ping
     let clients_ping_ref: Arc<RwLock<HashMap<u64, u128>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Ping in ms>
-    let pings_ref: PingsHashMap = Arc::new(Mutex::new(HashMap::default())); // <Ping ID, reference time in ms>
+    let PINGS_REF: PingsHashMap = Arc::new(Mutex::new(HashMap::default())); // <Ping ID, reference time in ms>
 
     // List of client heartbeat_status
     let client_has_heartbeat_ref: Arc<RwLock<HashMap<u64, bool>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, has_heartbeat>
@@ -79,7 +79,7 @@ async fn main() {
             socket_ref.clone(),
             clients_ref.clone(),
             root_ref.clone(),
-            pings_ref.clone(),
+            PINGS_REF.clone(),
             clients_ping_ref.clone(),
             b_running.clone(),
             client_has_heartbeat_ref.clone(),
@@ -103,7 +103,7 @@ This method handle every incoming datagram in the broker
 @param receiver ServerSocket : An atomic reference of the UDP socket of the server
 @param clients_ref ClientsHashMap<SocketAddr> : An atomic reference of the clients HashMap. The map is protected by a rwLock to be thread safe
 @param root_ref Arc<RwLock<TopicV2>> : An atomic reference of root topics, protected by a rwlock to be thread safe
-@param pings_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of the pings time references, protected by a mutex to be thread safe
+@param PINGS_REF Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of the pings time references, protected by a mutex to be thread safe
 @param clients_ping_ref Arc<Mutex<HashMap<u64, u128>>> : An atomic reference of client's ping hashmap, protected by a rwLock to be thread safe
 @param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
 @param client_has_heartbeat_ref Arc<RwLock<HashMap<u64, bool>>> : An atomic reference of the clients_heartbeat status.
@@ -153,7 +153,7 @@ async fn datagrams_handler(
                             // Clone needed variable
                             let receiver_ref = receiver.clone();
                             let clients_ref = clients.clone();
-                            let pings_ref = pings.clone();
+                            let PINGS_REF = pings.clone();
                             let clients_ping_ref = clients_ping.clone();
                             let b_running_ref = b_running.clone();
                             let config_ref = config.clone();
@@ -163,7 +163,7 @@ async fn datagrams_handler(
                                     receiver_ref,
                                     id,
                                     clients_ref,
-                                    pings_ref,
+                                    PINGS_REF,
                                     clients_ping_ref,
                                     b_running_ref,
                                     config_ref,

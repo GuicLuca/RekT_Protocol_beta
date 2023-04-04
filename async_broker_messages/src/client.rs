@@ -10,18 +10,17 @@ use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use tokio::sync::{Mutex};
 use tokio::sync::mpsc::{Receiver};
 use tokio::time::sleep;
 
 use crate::client_lib::{client_has_sent_life_sign, ClientActions, now_ms};
 use crate::client_lib::ClientActions::*;
-use crate::CONFIG;
+use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CLIENTS_STRUCTS_REF, CONFIG, PINGS_REF, TOPICS_SUBSCRIBERS_REF};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::*;
 use crate::server_lib::LogSource::*;
-use crate::types::{ClientId, ClientSender, ClientsHashMap, ServerSocket, TopicsHashMap};
+use crate::types::{ClientId, ServerSocket};
 
 #[derive(Debug)]
 pub struct Client {
@@ -137,9 +136,6 @@ impl Client {
                     HandleData {
                         sender,
                         buffer,
-                        clients,
-                        clients_addresses,
-                        topics_subscribers,
                     } => {
                         // 1 - clone local variables to give theme to the tokio task
                         let requests_counter_ref = self.requests_counter.clone();
@@ -168,7 +164,7 @@ impl Client {
 
                             // 3 - get a list of interested clients
                             let mut interested_clients = {
-                                let read_client_topics = topics_subscribers.read().await;
+                                let read_client_topics = TOPICS_SUBSCRIBERS_REF.read().await;
                                 if !read_client_topics.contains_key(&data_rq.topic_id) {
                                     log(Warning, DataHandler, format!("Topic {} doesn't exist", data_rq.topic_id));
                                     return;
@@ -181,14 +177,14 @@ impl Client {
                             interested_clients.remove(&client_id);
                             for client in interested_clients {
                                 let client_sender = {
-                                    let map = clients.read().await;
+                                    let map = CLIENTS_SENDERS_REF.read().await;
                                     map.get(&client).unwrap().clone()
                                 };
                                 let data = RQ_Data::new(data_rq.sequence_number, data_rq.topic_id, data_rq.data.clone());
                                 let data = data.as_bytes();
                                 let client_addr = {
                                     // use closure to reduce the lock lifetime
-                                    *clients_addresses.read().await.get(&client).unwrap()
+                                    *CLIENTS_ADDRESSES_REF.read().await.get(&client).unwrap()
                                 };
                                 let result = send_datagram(sender.clone(), &data, client_addr, client_sender).await;
 
@@ -201,12 +197,11 @@ impl Client {
                     HandlePong {
                         ping_id,
                         current_time,
-                        pings_ref
                     } => {
                         let round_trip;
                         {
                             // 1 - get the mutable ref of all ping request
-                            let mut pings_ref_mut = pings_ref.lock().await;
+                            let mut pings_ref_mut = PINGS_REF.lock().await;
                             // 2 - compute the round trip
                             round_trip = (current_time - pings_ref_mut.get(&ping_id).unwrap()) / 2;
                             // 3 - free the ping_id
@@ -226,12 +221,7 @@ impl Client {
                     }
 
                     // This command clear client data and stop client's task
-                    HandleDisconnect {
-                        topics_subscribers,
-                        clients_ref,
-                        clients_addresses,
-                        clients_structs
-                    } => {
+                    HandleDisconnect {} => {
                         /* need to remove from :
                             1 - client_topic : remove the ic from every subscribed
                             2 - clients_ref hashmap => will stop ping_sender task and heartbeat_checker task
@@ -247,7 +237,7 @@ impl Client {
                         let id = self.id;
                         tokio::spawn(async move {
                             {
-                                let mut write_client_topics = topics_subscribers.write().await;
+                                let mut write_client_topics = TOPICS_SUBSCRIBERS_REF.write().await;
                                 topic_ids.into_iter().for_each(|topic_id| {
                                     write_client_topics.get_mut(&topic_id).unwrap().remove(&id);
                                 });
@@ -255,13 +245,13 @@ impl Client {
 
                             // 2&3 - Remove the id from the server memory
                             {
-                                clients_ref.write().await.remove(&id);
+                                CLIENTS_SENDERS_REF.write().await.remove(&id);
                             }
                             {
-                                clients_addresses.write().await.remove(&id);
+                                CLIENTS_ADDRESSES_REF.write().await.remove(&id);
                             }
                             {
-                                clients_structs.write().await.remove(&id);
+                                CLIENTS_STRUCTS_REF.write().await.remove(&id);
                             }
                             log(Info, Other, format!("Disconnection of client {}", id));
                         });
@@ -269,10 +259,6 @@ impl Client {
 
                     // This command start every client managers
                     StartManagers {
-                        clients,
-                        topics_subscribers,
-                        clients_addresses,
-                        clients_structs,
                         b_running,
                         server_sender,
                     } => {
@@ -281,9 +267,8 @@ impl Client {
                         let server_sender_ref = server_sender.clone();
                         let id = self.id;
                         let socket = self.socket;
-                        let clients_ref = clients.clone();
                         tokio::spawn(async move {
-                            heartbeat_manager(id, socket, clients_ref, topics_subscribers, clients_addresses, clients_structs, b_running, server_sender_ref).await;
+                            heartbeat_manager(id, socket,b_running, server_sender_ref).await;
                         });
                     }
 
@@ -291,7 +276,6 @@ impl Client {
                     // and then answer the client with a ACK or NACK.
                     HandleTopicRequest {
                         server_socket,
-                        topics_subscribers,
                         buffer,
                         client_sender,
                     } => {
@@ -308,7 +292,7 @@ impl Client {
                                 TopicsAction::SUBSCRIBE => {
                                     // 1 - check if topic exist, then insert/update the value by adding the client id to the topic
                                     let is_subscribed = {
-                                        let mut topics_sub_write = topics_subscribers.write().await;
+                                        let mut topics_sub_write = TOPICS_SUBSCRIBERS_REF.write().await;
                                         let subscribers_set = topics_sub_write.entry(topic_hash)
                                             .or_insert({
                                                 // Create a new hashset and insert the client
@@ -371,7 +355,7 @@ impl Client {
                                     // get the hash of the topic
                                     // Remove it from the common array
                                     {
-                                        topics_subscribers.write().await.entry(topic_hash).and_modify(|vec| { vec.retain(|e| *e != client_id) });
+                                        TOPICS_SUBSCRIBERS_REF.write().await.entry(topic_hash).and_modify(|vec| { vec.retain(|e| *e != client_id) });
                                     }
 
                                     // remove it from the personal client set
@@ -441,10 +425,6 @@ impl Client {
 pub async fn heartbeat_manager(
     id: ClientId,
     socket: SocketAddr,
-    clients: ClientsHashMap<ClientSender>,
-    topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
-    clients_addresses: ClientsHashMap<SocketAddr>,
-    clients_structs: ClientsHashMap<Arc<Mutex<Client>>>,
     b_running: Arc<bool>,
     server_sender: ServerSocket,
 ) {
@@ -452,11 +432,11 @@ pub async fn heartbeat_manager(
     // 1 - Init local variables
     let mut missed_heartbeats: u8 = 0; // used to count how many HB are missing
     let client_sender = {
-        clients.read().await.get(&id).unwrap().clone()
+        CLIENTS_SENDERS_REF.read().await.get(&id).unwrap().clone()
     };
 
     // 2 - Loop while server is running and client is online
-    while *b_running && is_online(id, clients.clone()).await {
+    while *b_running && is_online(id).await {
         // 3 - waite for the heartbeat period
         sleep(Duration::from_secs(CONFIG.heart_beat_period as u64)).await;
 
@@ -505,12 +485,7 @@ pub async fn heartbeat_manager(
 
                 // 8 - Remove the client from the main array
                 // client's task will end automatically
-                let cmd = HandleDisconnect {
-                    topics_subscribers: topics_subscribers.clone(),
-                    clients_ref: clients.clone(),
-                    clients_addresses: clients_addresses.clone(),
-                    clients_structs: clients_structs.clone(),
-                };
+                let cmd = HandleDisconnect {};
                 let sender_ref = client_sender.clone();
                 match sender_ref.send(cmd).await {
                     Ok(_) => {}
