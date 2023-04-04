@@ -30,9 +30,9 @@ mod types;
 async fn main() {
     println!("[Server] Hi there !");
     let config_arc = &Arc::new(Config::new());
-    let config: &'static Arc<Config> = unsafe { std::mem::transmute(&config_arc) };
-        log(Info, Other, format!("Config generation complete : \n{:#?}", config), &config);
-    println!("The ip of the server is {}:{}", local_ip().unwrap(), config.port);
+    let config: &'static Arc<Config> = unsafe { std::mem::transmute(config_arc) };
+        log(Info, Other, format!("Config generation complete : \n{:#?}", &config), &config);
+    println!("The ip of the server is {}:{}", local_ip().unwrap(), &config.port);
 
     /*===============================
          Init all server variable
@@ -41,7 +41,7 @@ async fn main() {
     #[allow(unused)] let mut b_running;
 
     // The socket used by the server to exchange datagrams with clients
-    let socket = UdpSocket::bind(format!("{}:{}", "0.0.0.0", config.port.parse::<i16>().unwrap())).await.unwrap();
+    let socket = UdpSocket::bind(format!("{}:{}", "0.0.0.0", &config.port.parse::<i16>().unwrap())).await.unwrap();
     let socket_ref: ServerSocket = Arc::new(socket);
 
     // List of client's :
