@@ -29,8 +29,9 @@ mod types;
 #[tokio::main]
 async fn main() {
     println!("[Server] Hi there !");
-    let config: Arc<Config> = Arc::new(Config::new());
-    log(Info, Other, format!("Config generation complete : \n{:#?}", config), config.clone());
+    let config_arc = &Arc::new(Config::new());
+    let config: &'static Arc<Config> = unsafe { std::mem::transmute(&config_arc) };
+        log(Info, Other, format!("Config generation complete : \n{:#?}", config), &config);
     println!("The ip of the server is {}:{}", local_ip().unwrap(), config.port);
 
     /*===============================
@@ -59,21 +60,19 @@ async fn main() {
     //let objects_topic: TopicsHashMap<HashSet<ClientId>> = Arc::new(RwLock::new(HashMap::new()));
 
 
-    log(Info, Other, format!("Server variables successfully initialized"), config.clone());
+    log(Info, Other, format!("Server variables successfully initialized"), &config);
 
     // =============================
     //    Spawning async functions
     // =============================
     b_running = Arc::from(true);
     let (ping_sender, datagram_handler) = { // Closure used to reduce clone lifetime
-        let config_ref = config.clone();
         // clone needed value for the second task
         let datagram_socket = socket_ref.clone();
         let datagram_clients = clients_ref.clone();
         let datagram_clients_address = clients_address_ref.clone();
         let datagram_pings = pings_ref.clone();
         let datagram_b_running = b_running.clone();
-        let datagram_config = config_ref.clone();
 
         let ping_sender = tokio::spawn(async move {
             ping_sender(
@@ -82,7 +81,7 @@ async fn main() {
                 clients_ref,
                 pings_ref,
                 b_running,
-                config_ref,
+                &config,
             ).await;
         });
         // ... and then spawn the second task
@@ -95,19 +94,19 @@ async fn main() {
                 datagram_b_running,
                 topics_subscribers_ref,
                 clients_structs,
-                datagram_config,
+                &config,
             ).await;
         });
         (ping_sender, datagram_handler)
     };
 
-    log(Info, Other, format!("Server is running ..."), config.clone());
+    log(Info, Other, format!("Server is running ..."), &config);
 
 
     join!(datagram_handler, ping_sender).0.expect("Error while joining the tasks");
 
     b_running = Arc::from(false);
-    log(Info, Other, format!("Server has stopped ... Running status : {}", b_running), config.clone());
+    log(Info, Other, format!("Server has stopped ... Running status : {}", b_running), &config);
 }
 
 
@@ -122,7 +121,7 @@ async fn main() {
  * @param b_running: Arc<bool>, State of the server
  * @param topics_subscriber: TopicsHashMap<HashSet<ClientId>>, HashMap containing every client Id that are subscribed to a topic.
  * @param clients_structs: ClientsHashMap<Arc<Mutex<Client>>>, HashMap containing every client struct.
- * @param config: Arc<Config>, The config reference shared to every task
+ * @param config: &Arc<Config>, The config reference shared to every task
  */
 async fn datagrams_handler(
     receiver: ServerSocket,
@@ -132,9 +131,9 @@ async fn datagrams_handler(
     b_running: Arc<bool>,
     topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
     clients_structs: ClientsHashMap<Arc<Mutex<Client>>>,
-    config: Arc<Config>,
+    config: &'static Arc<Config>,
 ) {
-    log(Info, DatagramsHandler, format!("Datagrams Handler spawned"), config.clone());
+    log(Info, DatagramsHandler, format!("Datagrams Handler spawned"), &config);
     // infinite loop receiving listening for datagrams
     loop {
         // 1 - create an empty buffer of size 1024
@@ -145,7 +144,7 @@ async fn datagrams_handler(
             // 3 - Once bytes are received, check for errors
             Ok((n, src)) => {
                 // 4 - if OK match on the first byte (MESSAGE_TYPE)
-                log(Info, DatagramsHandler, format!("Received {} bytes from {}", n, src), config.clone());
+                log(Info, DatagramsHandler, format!("Received {} bytes from {}", n, src), &config);
 
                 // 4 - Get the client id source of the request
                 let client_id_found = get_client_id(src, clients_addresses.clone().read().await.to_owned()).await;
@@ -153,7 +152,7 @@ async fn datagrams_handler(
                 //  5 - Do not handle the datagram if the source is not auth and is not trying to connect
                 if (MessageType::from(buf[0]) != MessageType::CONNECT) && client_id_found.is_none()
                 {
-                    log(Warning, DatagramsHandler, format!("Datagrams dropped from {}. Error : Not connected and trying to {}.", src.ip(), display_message_type(MessageType::from(buf[0]))), config.clone());
+                    log(Warning, DatagramsHandler, format!("Datagrams dropped from {}. Error : Not connected and trying to {}.", src.ip(), display_message_type(MessageType::from(buf[0]))), &config);
                     continue;
                 } else if !client_id_found.is_none() {
                     // The client is already connected
@@ -179,12 +178,11 @@ async fn datagrams_handler(
                 match MessageType::from(buf[0]) {
                     MessageType::CONNECT => {
                         // 4.1 - A user is trying to connect to the server
-                        log(Info, DatagramsHandler, format!("{} is trying to connect", src.ip()), config.clone());
+                        log(Info, DatagramsHandler, format!("{} is trying to connect", src.ip()), &config);
 
                         let b_running_ref = b_running.clone();
                         let socket_ref = receiver.clone();
                         let clients_addresses_ref = clients_addresses.clone();
-                        let config_ref = config.clone();
                         let topics_subscribers_ref = topics_subscribers.clone();
                         let clients_structs_ref = clients_structs.clone();
                         let clients_ref = clients.clone();
@@ -197,11 +195,11 @@ async fn datagrams_handler(
                             if is_connected {
                                 // 2 - User already connected, return the same data as previous connection
                                 uuid = current_id;
-                                log(Info, DatagramsHandler, format!("{} was already a client, UUID : {}", src.ip(), uuid), config_ref.clone());
+                                log(Info, DatagramsHandler, format!("{} was already a client, UUID : {}", src.ip(), uuid), &config);
                             } else {
                                 //3 - it's a new connection : generate a new id
                                 uuid = get_new_id();
-                                log(Info, DatagramsHandler, format!("{} is now a client, UUID : {}", src.ip(), uuid), config_ref.clone());
+                                log(Info, DatagramsHandler, format!("{} is now a client, UUID : {}", src.ip(), uuid), &config);
 
                                 // 3.1 - Create a chanel to exchange commands through
                                 let (sender, receiver) = mpsc::channel::<ClientActions>(32);
@@ -215,9 +213,8 @@ async fn datagrams_handler(
                                 }
                                 {
                                     let manager_ref = new_client_arc.clone();
-                                    let config_ref_task = config_ref.clone();
                                     tokio::spawn(async move {
-                                        manager_ref.lock().await.manager(config_ref_task).await;
+                                        manager_ref.lock().await.manager(&config).await;
                                     });
                                     let mut map = clients_structs_ref.write().await;
                                     map.insert(uuid, new_client_arc);
@@ -231,7 +228,7 @@ async fn datagrams_handler(
                                 let map = clients_ref.read().await;
                                 map.get(&uuid).unwrap().clone()
                             };
-                            let datagram = &RQ_Connect_ACK_OK::new(uuid, config_ref.heart_beat_period).as_bytes();
+                            let datagram = &RQ_Connect_ACK_OK::new(uuid, *&config.heart_beat_period).as_bytes();
                             result = send_datagram(socket_ref.clone(), datagram, src, sender.clone()).await;
 
                             // New client connected spawn a task to start his personal managers
@@ -258,31 +255,31 @@ async fn datagrams_handler(
                                 // init his ping with this request:
                                 send_datagram(
                                     socket_ref,
-                                    &RQ_Ping::new(get_new_ping_reference(pings_ref, config_ref.clone()).await).as_bytes(),
+                                    &RQ_Ping::new(get_new_ping_reference(pings_ref, &config).await).as_bytes(),
                                     src,
                                     sender.clone(),
                                 ).await.unwrap();
                             } // End if
                             match result {
                                 Ok(bytes) => {
-                                    log(Info, DatagramsHandler, format!("Send {} bytes (RQ_Connect_ACK_OK) to {}", bytes, src.ip()), config_ref.clone());
+                                    log(Info, DatagramsHandler, format!("Send {} bytes (RQ_Connect_ACK_OK) to {}", bytes, src.ip()), &config);
                                 }
                                 Err(error) => {
-                                    log(Error, DatagramsHandler, format!("Failed to send Connect ACK to {}.\nError: {}", src.ip(), error), config_ref.clone());
+                                    log(Error, DatagramsHandler, format!("Failed to send Connect ACK to {}.\nError: {}", src.ip(), error), &config);
                                 }
                             }
                         });
                     }// end connect
                     MessageType::DATA => {
                         // 4.2 - A user is trying to sent data to the server
-                        log(Info, DatagramsHandler, format!("{} is trying to sent data", client_id), config.clone());
+                        log(Info, DatagramsHandler, format!("{} is trying to sent data", client_id), &config);
 
                         let cmd = HandleData {
                             sender: receiver.clone(),
                             buffer: buf,
                             clients: clients.clone(),
                             clients_addresses: clients_addresses.clone(),
-                            config: config.clone(),
+                            config: &config,
                             topics_subscribers: topics_subscribers.clone(),
                         };
                         let client_sender = {
@@ -298,11 +295,11 @@ async fn datagrams_handler(
                     }
                     MessageType::OPEN_STREAM => {
                         // 4.3 - A user is trying to open a new stream
-                        log(Info, DatagramsHandler, format!("{} is trying to open a new stream", client_id), config.clone());
+                        log(Info, DatagramsHandler, format!("{} is trying to open a new stream", client_id), &config);
                     }
                     MessageType::SHUTDOWN => {
                         // 4.4 - A user is trying to shutdown the connexion with the server
-                        log(Info, DatagramsHandler, format!("{} is trying to shutdown the connexion with the server", client_id), config.clone());
+                        log(Info, DatagramsHandler, format!("{} is trying to shutdown the connexion with the server", client_id), &config);
 
                         let cmd = HandleDisconnect {
                             topics_subscribers: topics_subscribers.clone(),
@@ -326,7 +323,7 @@ async fn datagrams_handler(
                     }
                     MessageType::HEARTBEAT => {
                         // 4.5 - A user is trying to sent an heartbeat
-                        log(Info, DatagramsHandler, format!("{} is trying to sent an heartbeat", client_id), config.clone());
+                        log(Info, DatagramsHandler, format!("{} is trying to sent an heartbeat", client_id), &config);
                         // check if client is still connected
                         /*if clients.read().await.contains_key(&client_id) {
                             // TODO: voir si c'est ok ou pas de pas check si la dernier rq est un HB ou pas.
@@ -334,11 +331,11 @@ async fn datagrams_handler(
                     }
                     MessageType::OBJECT_REQUEST => {
                         // 4.6 - A user is trying to request an object
-                        log(Info, DatagramsHandler, format!("{} is trying to request an object", client_id), config.clone());
+                        log(Info, DatagramsHandler, format!("{} is trying to request an object", client_id), &config);
                     }
                     MessageType::TOPIC_REQUEST => {
                         // 4.7 - A user is trying to request a new topic
-                        log(Info, DatagramsHandler, format!("{} is trying to request a new topic", client_id), config.clone());
+                        log(Info, DatagramsHandler, format!("{} is trying to request a new topic", client_id), &config);
 
                         let client_sender = {
                             let map = clients.read().await;
@@ -362,7 +359,7 @@ async fn datagrams_handler(
                     }
                     MessageType::PONG => {
                         // 4.8 - A user is trying to answer a ping request
-                        log(Info, DatagramsHandler, format!("{} is trying to answer a ping request", client_id), config.clone());
+                        log(Info, DatagramsHandler, format!("{} is trying to answer a ping request", client_id), &config);
                         let time = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
@@ -389,15 +386,15 @@ async fn datagrams_handler(
                     }
                     MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING | MessageType::TOPIC_REQUEST_NACK => {
                         // 4.9 - invalid datagrams for the server
-                        log(Warning, DatagramsHandler, format!("{} has sent an invalid datagram.", client_id), config.clone());
+                        log(Warning, DatagramsHandler, format!("{} has sent an invalid datagram.", client_id), &config);
                     }
                     MessageType::UNKNOWN => {
-                        log(Warning, DatagramsHandler, format!("Received unknown packet from {}", src.ip()), config.clone());
+                        log(Warning, DatagramsHandler, format!("Received unknown packet from {}", src.ip()), &config);
                     }
                 }
             }
             Err(e) => {
-                log(Error, DatagramsHandler, format!("Error: {}", e), config.clone());
+                log(Error, DatagramsHandler, format!("Error: {}", e), &config);
             }
         }
     }
@@ -420,9 +417,9 @@ async fn ping_sender(
     clients_senders: ClientsHashMap<ClientSender>,
     pings: PingsHashMap,
     b_running: Arc<bool>,
-    config: Arc<Config>,
+    config: &Arc<Config>,
 ) {
-    log(Info, PingSender, format!("Ping sender spawned"), config.clone());
+    log(Info, PingSender, format!("Ping sender spawned"), &config);
     while *b_running {
         // get all connected ids:
         let ids: Vec<ClientId> = {
@@ -442,15 +439,15 @@ async fn ping_sender(
             // 2 - Send a ping request to the client
             match send_datagram(
                 sender.clone(),
-                &RQ_Ping::new(get_new_ping_reference(pings.clone(), config.clone()).await).as_bytes(),
+                &RQ_Ping::new(get_new_ping_reference(pings.clone(), &config).await).as_bytes(),
                 client_addr,
                 client_sender.clone(),
             ).await {
                 Ok(bytes) => {
-                    log(Info, PingSender, format!("Send {} bytes to {}", bytes, client_id), config.clone());
+                    log(Info, PingSender, format!("Send {} bytes to {}", bytes, client_id), &config);
                 }
                 Err(error) => {
-                    log(Error, PingSender, format!("Failed to send ping request to {}.\n{}", client_id, error), config.clone());
+                    log(Error, PingSender, format!("Failed to send ping request to {}.\n{}", client_id, error), &config);
                 }
             }
         } // end for
@@ -458,5 +455,5 @@ async fn ping_sender(
         sleep(Duration::from_secs(config.ping_period as u64)).await;
     }// end while
     // 4 - End the task
-    log(Info, PingSender, format!("Ping sender destroyed"), config.clone());
+    log(Info, PingSender, format!("Ping sender destroyed"), &config);
 }

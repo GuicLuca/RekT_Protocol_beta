@@ -35,7 +35,7 @@ pub enum ClientActions {
         clients: ClientsHashMap<ClientSender>,
         clients_addresses: ClientsHashMap<SocketAddr>,
         topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
-        config: Arc<Config>,
+        config: &'static Arc<Config>,
     },
     AddSubscribedTopic{
         topic_id: TopicId
@@ -94,13 +94,13 @@ pub fn now_ms() -> u128
  * signe (sent any request) under the heartbeat period.
  *
  * @param client_sender: ClientSender, The client channel used to fire commands
- * @param config: Arc<Config>, used to access the HEARTBEAT_PERIOD
+ * @param config: &Arc<Config>, used to access the HEARTBEAT_PERIOD
  *
  * @return bool
  */
 pub async fn client_has_sent_life_sign(
     client_sender: ClientSender,
-    config: Arc<Config>
+    config: &Arc<Config>
 ) -> bool
 {
     // 1 - Get the current time

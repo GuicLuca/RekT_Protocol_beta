@@ -35,13 +35,13 @@ pub enum LogSource {
  * @param log_level: LogLevel, The level of importance of the message.
  * @param log_source: LogSource, The source of the message.
  * @param message: String, The message to print.
- * @param config: Arc<Config>, The config reference.
+ * @param config: &Arc<Config>, The config reference.
  */
 pub fn log(
     log_level: LogLevel,
     log_source: LogSource,
     message: String,
-    config: Arc<Config>,
+    config: &Arc<Config>,
 ) {
     // If log level is under config log level do not show the message
     if log_level < config.debug_level { return; }
@@ -184,13 +184,13 @@ fn get_new_ping_id() -> u8 {
  * as the "reference time" to compute the round trip later.
  *
  * @param pings: PingsHashMap, The HashMap that contain every ping reference
- * @param config: Arc<Config>, The config used to print logs.
+ * @param config: &Arc<Config>, The config used to print logs.
  *
  * @return u8, The new ping id.
  */
 pub async fn get_new_ping_reference(
     pings: PingsHashMap,
-    config: Arc<Config>
+    config: &Arc<Config>
 ) -> u8 {
     // 1 - Generate a new unique id
     let key = get_new_ping_id();
@@ -203,7 +203,7 @@ pub async fn get_new_ping_reference(
 
     // 3 - Save it into the array
     pings.lock().await.insert(key, time);
-    log(Info, PingSender, format!("New ping reference created. Id : {}", key), config.clone());
+    log(Info, PingSender, format!("New ping reference created. Id : {}", key), &config);
 
     // 4 - Return the id
     return key;
