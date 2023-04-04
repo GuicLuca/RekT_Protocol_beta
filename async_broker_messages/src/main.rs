@@ -29,7 +29,9 @@ mod types;
 use lazy_static::lazy_static;
 
 lazy_static! {
+    static ref ISRUNNING: Arc<RwLock<bool>> = Arc::from(RwLock::from(false)); // Flag showing if the server is running or not
     static ref CONFIG: Config = Config::new(); // Unique reference to the config object
+
     // List of client's :
     static ref CLIENTS_SENDERS_REF: ClientsHashMap<ClientSender> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Sender> -> the sender is used to sent command through the mpsc channels
     static ref CLIENTS_STRUCTS_REF: ClientsHashMap<Arc<Mutex<Client>>> = Arc::new(RwLock::new(HashMap::default())); // <Client ID, Struct> -> used only to keep struct alive
@@ -49,39 +51,33 @@ async fn main() {
     println!("The ip of the server is {}:{}", local_ip().unwrap(), CONFIG.port);
 
     /*===============================
-         Init all server variable
+         Init server variables
      ==============================*/
-    // Flag showing if the server is running or not
-    #[allow(unused)] let mut b_running;
 
     // The socket used by the server to exchange datagrams with clients
     let socket = UdpSocket::bind(format!("{}:{}", "0.0.0.0", &CONFIG.port.parse::<i16>().unwrap())).await.unwrap();
     let socket_ref: ServerSocket = Arc::new(socket);
 
-
-
-    log(Info, Other, format!("Server variables successfully initialized"));
-
     // =============================
     //    Spawning async functions
     // =============================
-    b_running = Arc::from(true);
+    let mut status = ISRUNNING.write().await;
+    *status= true;
+    drop(status); // release the write lock.
+
     let (ping_sender, datagram_handler) = { // Closure used to reduce clone lifetime
         // clone needed value for the second task
         let datagram_socket = socket_ref.clone();
-        let datagram_b_running = b_running.clone();
 
         let ping_sender = tokio::spawn(async move {
             ping_sender(
                 socket_ref,
-                b_running,
             ).await;
         });
         // ... and then spawn the second task
         let datagram_handler = tokio::spawn(async move {
             datagrams_handler(
                 datagram_socket,
-                datagram_b_running,
             ).await;
         });
         (ping_sender, datagram_handler)
@@ -92,8 +88,11 @@ async fn main() {
 
     join!(datagram_handler, ping_sender).0.expect("Error while joining the tasks");
 
-    b_running = Arc::from(false);
-    log(Info, Other, format!("Server has stopped ... Running status : {}", b_running));
+    let mut status = ISRUNNING.write().await;
+    *status= false;
+    drop(status); // release the write lock.
+
+    log(Info, Other, format!("Server has stopped ... Running status : {}", ISRUNNING.read().await));
 }
 
 
@@ -102,15 +101,18 @@ async fn main() {
  * to compute needed data.
  *
  * @param receiver: ServerSocket, The server socket use to exchange data
- * @param b_running: Arc<bool>, State of the server
  */
 async fn datagrams_handler(
     receiver: ServerSocket,
-    b_running: Arc<bool>,
 ) {
     log(Info, DatagramsHandler, format!("Datagrams Handler spawned"));
-    // infinite loop receiving listening for datagrams
-    loop {
+    // loop receiving listening for datagrams
+
+    // Init the server status
+    let mut server_is_running = {
+        *ISRUNNING.read().await
+    };
+    while server_is_running {
         // 1 - create an empty buffer of size 1024
         let mut buf = [0; 1024];
 
@@ -155,10 +157,9 @@ async fn datagrams_handler(
                         // 4.1 - A user is trying to connect to the server
                         log(Info, DatagramsHandler, format!("{} is trying to connect", src.ip()));
 
-                        let b_running_ref = b_running.clone();
                         let socket_ref = receiver.clone();
                         tokio::spawn(async move {
-                            let (is_connected, current_id) = already_connected(&src.ip(), CLIENTS_ADDRESSES_REF.read().await).await;
+                            let (is_connected, current_id) = already_connected(&src.ip()).await;
                             let uuid;
                             let result;
 
@@ -204,7 +205,6 @@ async fn datagrams_handler(
                             // New client connected spawn a task to start his personal managers
                             if !is_connected {
                                 let cmd = StartManagers {
-                                    b_running: b_running_ref,
                                     server_sender: socket_ref.clone(),
                                 };
 
@@ -352,22 +352,31 @@ async fn datagrams_handler(
                 log(Error, DatagramsHandler, format!("Error: {}", e));
             }
         }
-    }
+
+        // update the server status before looping again
+        server_is_running = {
+            *ISRUNNING.read().await
+        };
+    } // end while
 }
 
 /**
 This method send ping request to every connected clients
 @param sender ServerSocket : An atomic reference of the UDP socket of the server
-@param b_running Arc<bool> : An atomic reference of the server status to stop the "thread" if server is stopping
 
 @return None
  */
 async fn ping_sender(
     sender: ServerSocket,
-    b_running: Arc<bool>,
 ) {
     log(Info, PingSender, format!("Ping sender spawned"));
-    while *b_running {
+
+    // Init the server status
+    let mut server_is_running = {
+        *ISRUNNING.read().await
+    };
+
+    while server_is_running {
         // get all connected ids:
         let ids: Vec<ClientId> = {
             CLIENTS_ADDRESSES_REF.read().await.keys().map(|s| *s).collect()
@@ -400,7 +409,12 @@ async fn ping_sender(
         } // end for
         // 3 - wait 10 sec before ping everyone again
         sleep(Duration::from_secs(CONFIG.ping_period as u64)).await;
+
+        // 4 - Update the server status before running again.
+        server_is_running = {
+            *ISRUNNING.read().await
+        };
     }// end while
-    // 4 - End the task
+    // 5 - End the task
     log(Info, PingSender, format!("Ping sender destroyed"));
 }

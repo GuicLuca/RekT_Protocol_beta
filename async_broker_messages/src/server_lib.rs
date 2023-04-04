@@ -1,9 +1,6 @@
-use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::time::{SystemTime, UNIX_EPOCH};
 use rand::Rng;
-
-use tokio::sync::{RwLockReadGuard};
 
 use crate::client_lib::{now_ms};
 use crate::client_lib::ClientActions::{UpdateServerLastRequest};
@@ -83,16 +80,14 @@ pub fn log(
  *  it return the old client id too.
  *
  * @param ip: &IpAddr, ip address of the tested client
- * @param clients: MutexGuard<HashMap<ClientId, SocketAddr>>, Hashmap containing all clients address and clients id.
  *
  * @return (bool, ClientId)
  */
-pub async fn already_connected<'a>(
-    ip: &'a IpAddr,
-    clients_addresses: RwLockReadGuard<'a, HashMap<ClientId,SocketAddr>>,
+pub async fn already_connected(
+    ip: & IpAddr,
 ) -> (bool, ClientId) {
     // Use iterator for performance
-    clients_addresses
+    CLIENTS_ADDRESSES_REF.read().await
         .iter()
         .find_map(|(key, value)| {
             if ip == &value.ip() {
@@ -106,8 +101,6 @@ pub async fn already_connected<'a>(
 
 /**
  * This methods return a unique id for a new client.
- *
- * @param clients: MutexGuard<HashMap<ClientId, SocketAddr>>, Hashmap containing all clients address and clients id.
  *
  * @return ClientId
  */
@@ -125,7 +118,6 @@ pub fn get_new_id() -> ClientId {
  * source is not found.
  *
  * @param src: SocketAddr, The searched source.
- * @param clients MutexGuard<HashMap<u64, SocketAddr>> : Hashmap containing all clients address and clients id.
  *
  * @return Option<ClientId>
  */
@@ -180,8 +172,6 @@ fn get_new_ping_id() -> u8 {
  * This method generate a new ping id and save the current time
  * as the "reference time" to compute the round trip later.
  *
- * @param pings: PingsHashMap, The HashMap that contain every ping reference.
- *
  * @return u8, The new ping id.
  */
 pub async fn get_new_ping_reference() -> u8 {
@@ -207,7 +197,6 @@ pub async fn get_new_ping_reference() -> u8 {
  * This function return true if the client is currently online.
  *
  * @param client_id: ClientId,  The checked client identifier
- * @param clients ClientsHashMap<ClientSender>: The hashmap of all connected clients
  *
  * @return bool
  */

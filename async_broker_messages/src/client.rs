@@ -15,7 +15,7 @@ use tokio::time::sleep;
 
 use crate::client_lib::{client_has_sent_life_sign, ClientActions, now_ms};
 use crate::client_lib::ClientActions::*;
-use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CLIENTS_STRUCTS_REF, CONFIG, PINGS_REF, TOPICS_SUBSCRIBERS_REF};
+use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CLIENTS_STRUCTS_REF, CONFIG, ISRUNNING, PINGS_REF, TOPICS_SUBSCRIBERS_REF};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::*;
@@ -46,8 +46,9 @@ impl Client {
     /**
      * Only give the id and the socket of the client to create a new one
      *
-     * @param id: ClientId The server identifier of the client
-     * @param socket: SocketAddr The socket of the client (used to sent data through network)
+     * @param id: ClientId, The server identifier of the client
+     * @param socket: SocketAddr, The socket of the client (used to sent data through network)
+     * @param receiver: Receiver<ClientActions>, The receiver part of the mpsc channel
      *
      * @return Client
      */
@@ -259,7 +260,6 @@ impl Client {
 
                     // This command start every client managers
                     StartManagers {
-                        b_running,
                         server_sender,
                     } => {
 
@@ -268,7 +268,7 @@ impl Client {
                         let id = self.id;
                         let socket = self.socket;
                         tokio::spawn(async move {
-                            heartbeat_manager(id, socket,b_running, server_sender_ref).await;
+                            heartbeat_manager(id, socket, server_sender_ref).await;
                         });
                     }
 
@@ -415,17 +415,11 @@ impl Client {
  *
  * @param id: ClientId
  * @param socket: SocketAddr, The client address.
- * @param clients: ClientsHashMap<ClientSender>, HashMap containing every client channel. Used by the disconnect method.
- * @param topics_subscriber: TopicsHashMap<HashSet<ClientId>>, HashMap containing every client Id that are subscribed to a topic. Used by the disconnect method.
- * @param clients_addresses: ClientsHashMap<SocketAddr>, HashMap containing every client address. Used by the disconnect method.
- * @param clients_structs: ClientsHashMap<Arc<Mutex<Client>>>, HashMap containing every client struct. Used by the disconnect method.
- * @param b_running: Arc<bool>, State of the server
  * @param server_sender: ServerSocket, the server socket used to exchange data
  */
 pub async fn heartbeat_manager(
     id: ClientId,
     socket: SocketAddr,
-    b_running: Arc<bool>,
     server_sender: ServerSocket,
 ) {
     log(Info, HeartbeatChecker, format!("HeartbeatChecker spawned for {}", id));
@@ -435,8 +429,13 @@ pub async fn heartbeat_manager(
         CLIENTS_SENDERS_REF.read().await.get(&id).unwrap().clone()
     };
 
+    // Init the server status
+    let mut server_is_running = {
+        *ISRUNNING.read().await
+    };
+
     // 2 - Loop while server is running and client is online
-    while *b_running && is_online(id).await {
+    while server_is_running && is_online(id).await {
         // 3 - waite for the heartbeat period
         sleep(Duration::from_secs(CONFIG.heart_beat_period as u64)).await;
 
@@ -513,7 +512,12 @@ pub async fn heartbeat_manager(
                 }
             }
         }
-    }
+
+        // Update the server status before looping again
+        server_is_running = {
+            *ISRUNNING.read().await
+        };
+    } // End while
 
     // 9 - End the task
     log(Info, HeartbeatChecker, format!("Heartbeat checker destroyed for {}", id));

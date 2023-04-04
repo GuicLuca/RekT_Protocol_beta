@@ -2,7 +2,6 @@
 // @author : GuicLuca (lucasguichard127@gmail.com)
 // date : 22/03/2023
 
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{oneshot};
@@ -37,7 +36,6 @@ pub enum ClientActions {
         topic_id: TopicId
     },
     StartManagers{
-        b_running: Arc<bool>,
         server_sender: ServerSocket
     },
     UpdateServerLastRequest{
