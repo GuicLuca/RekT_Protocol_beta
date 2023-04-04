@@ -1,7 +1,10 @@
 use std::sync::Arc;
+use std::time::Duration;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use tokio::net::UdpSocket;
+use tokio::time::MissedTickBehavior::Delay;
+use tokio::time::sleep;
 
 use crate::ps_datagram_structs::*;
 use crate::ps_common::*;
@@ -105,6 +108,13 @@ impl Client {
         tokio::spawn(async move{
             while true {
                 socket.send(&RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/ez/EZ/EZ/EZ/EZ/EZ/EZ/EZ/EZ/EZ").as_bytes()).await;
+                sequence_number +=1;
+            }
+        });
+        let socket = self.socket.clone();
+        tokio::spawn(async move{
+            while true {
+                socket.send(&RQ_TopicRequest::new(TopicsAction::SUBSCRIBE, "/AZ/AZ/AZ/EZ/EJHGFHGFZ/EJHGJHZ/EZ/ENFGHFDZ/EZ/EZ").as_bytes()).await;
                 sequence_number +=1;
             }
         });

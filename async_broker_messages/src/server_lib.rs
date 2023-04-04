@@ -1,18 +1,15 @@
-use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use rand::Rng;
 
-use tokio::sync::{RwLockReadGuard};
-
 use crate::client_lib::{now_ms};
 use crate::client_lib::ClientActions::{UpdateServerLastRequest};
-use crate::config::{Config, LogLevel};
+use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CONFIG, PINGS_REF};
+use crate::config::{LogLevel};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::LogSource::*;
-use crate::types::{ClientId, ClientSender, ClientsHashMap, PingsHashMap, ServerSocket, TopicId};
+use crate::types::{ClientId, ClientSender, ServerSocket, TopicId};
 
 /**
  * LogSource are used to display prefix and filter log messages.
@@ -35,45 +32,43 @@ pub enum LogSource {
  * @param log_level: LogLevel, The level of importance of the message.
  * @param log_source: LogSource, The source of the message.
  * @param message: String, The message to print.
- * @param config: Arc<Config>, The config reference.
  */
 pub fn log(
     log_level: LogLevel,
     log_source: LogSource,
-    message: String,
-    config: Arc<Config>,
+    message: String
 ) {
-    // If log level is under config log level do not show the message
-    if log_level < config.debug_level { return; }
+    // If log level is under CONFIG log level do not show the message
+    if log_level < CONFIG.debug_level { return; }
 
-    // For each case, check if the source is allowed by the configuration
+    // For each case, check if the source is allowed by the CONFIGuration
     // and then, print the message.
     match log_source {
         DatagramsHandler => {
-            if !config.debug_datagram_handler { return; }
+            if !CONFIG.debug_datagram_handler { return; }
             println!("[Server - DatagramHandler] {}: {}", display_loglevel(log_level), message);
         }
         PingSender => {
-            if !config.debug_ping_sender { return; }
+            if !CONFIG.debug_ping_sender { return; }
             println!("[Server - PingSender] {}: {}", display_loglevel(log_level), message);
         }
         DataHandler => {
-            if !config.debug_data_handler { return; }
+            if !CONFIG.debug_data_handler { return; }
             println!("[Server - DataHandler] {}: {}", display_loglevel(log_level), message);
         }
         HeartbeatChecker => {
-            if !config.debug_heartbeat_checker { return; }
+            if !CONFIG.debug_heartbeat_checker { return; }
             println!("[Server - HeartbeatChecker] {}: {}", display_loglevel(log_level), message);
         }
         TopicHandler => {
-            if !config.debug_topic_handler { return; }
+            if !CONFIG.debug_topic_handler { return; }
             println!("[Server - TopicHandler] {}: {}", display_loglevel(log_level), message);
         }
         Other => {
             println!("[Server] {}", message);
         }
         ClientManager => {
-            if !config.debug_topic_handler { return; }
+            if !CONFIG.debug_topic_handler { return; }
             println!("[Server - ClientManger] {}: {}", display_loglevel(log_level), message);
         }
     }
@@ -85,16 +80,14 @@ pub fn log(
  *  it return the old client id too.
  *
  * @param ip: &IpAddr, ip address of the tested client
- * @param clients: MutexGuard<HashMap<ClientId, SocketAddr>>, Hashmap containing all clients address and clients id.
  *
  * @return (bool, ClientId)
  */
-pub async fn already_connected<'a>(
-    ip: &'a IpAddr,
-    clients_addresses: RwLockReadGuard<'a, HashMap<ClientId,SocketAddr>>,
+pub async fn already_connected(
+    ip: & IpAddr,
 ) -> (bool, ClientId) {
     // Use iterator for performance
-    clients_addresses
+    CLIENTS_ADDRESSES_REF.read().await
         .iter()
         .find_map(|(key, value)| {
             if ip == &value.ip() {
@@ -108,8 +101,6 @@ pub async fn already_connected<'a>(
 
 /**
  * This methods return a unique id for a new client.
- *
- * @param clients: MutexGuard<HashMap<ClientId, SocketAddr>>, Hashmap containing all clients address and clients id.
  *
  * @return ClientId
  */
@@ -127,16 +118,14 @@ pub fn get_new_id() -> ClientId {
  * source is not found.
  *
  * @param src: SocketAddr, The searched source.
- * @param clients MutexGuard<HashMap<u64, SocketAddr>> : Hashmap containing all clients address and clients id.
  *
  * @return Option<ClientId>
  */
 pub async fn get_client_id(
     src: SocketAddr,
-    clients_addresses: HashMap<u64, SocketAddr>,
 ) -> Option<ClientId> {
     // Use the iterator for performance.
-    clients_addresses
+    CLIENTS_ADDRESSES_REF.read().await
         .iter()
         .find_map(|(&key, &addr)| if addr == src { Some(key) } else { None })
 }
@@ -183,15 +172,9 @@ fn get_new_ping_id() -> u8 {
  * This method generate a new ping id and save the current time
  * as the "reference time" to compute the round trip later.
  *
- * @param pings: PingsHashMap, The HashMap that contain every ping reference
- * @param config: Arc<Config>, The config used to print logs.
- *
  * @return u8, The new ping id.
  */
-pub async fn get_new_ping_reference(
-    pings: PingsHashMap,
-    config: Arc<Config>
-) -> u8 {
+pub async fn get_new_ping_reference() -> u8 {
     // 1 - Generate a new unique id
     let key = get_new_ping_id();
 
@@ -202,8 +185,8 @@ pub async fn get_new_ping_reference(
         .as_millis(); // Current time in ms
 
     // 3 - Save it into the array
-    pings.lock().await.insert(key, time);
-    log(Info, PingSender, format!("New ping reference created. Id : {}", key), config.clone());
+    PINGS_REF.lock().await.insert(key, time);
+    log(Info, PingSender, format!("New ping reference created. Id : {}", key));
 
     // 4 - Return the id
     return key;
@@ -214,16 +197,14 @@ pub async fn get_new_ping_reference(
  * This function return true if the client is currently online.
  *
  * @param client_id: ClientId,  The checked client identifier
- * @param clients ClientsHashMap<ClientSender>: The hashmap of all connected clients
  *
  * @return bool
  */
 pub async fn is_online(
     client_id: ClientId,
-    clients: ClientsHashMap<ClientSender>,
 ) -> bool
 {
-    let clients_read = clients.read().await;
+    let clients_read = CLIENTS_SENDERS_REF.read().await;
     return clients_read.contains_key(&client_id);
 }
 

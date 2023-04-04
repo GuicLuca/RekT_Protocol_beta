@@ -2,20 +2,16 @@
 // @author : GuicLuca (lucasguichard127@gmail.com)
 // date : 22/03/2023
 
-use std::collections::{HashSet};
-use std::net::SocketAddr;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{oneshot};
 
-use crate::client::Client;
 use crate::client_lib::ClientActions::Get;
-use crate::config::Config;
+use crate::CONFIG;
 use crate::config::LogLevel::Warning;
 use crate::server_lib::log;
 use crate::server_lib::LogSource::ClientManager;
-use crate::types::{ClientId, ClientSender, ClientsHashMap, PingsHashMap, Responder, ServerSocket, TopicId, TopicsHashMap};
+use crate::types::{ClientSender,Responder, ServerSocket, TopicId};
 
 
 /**
@@ -32,10 +28,6 @@ pub enum ClientActions {
     HandleData {
         sender: ServerSocket,
         buffer: [u8; 1024],
-        clients: ClientsHashMap<ClientSender>,
-        clients_addresses: ClientsHashMap<SocketAddr>,
-        topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
-        config: Arc<Config>,
     },
     AddSubscribedTopic{
         topic_id: TopicId
@@ -44,11 +36,6 @@ pub enum ClientActions {
         topic_id: TopicId
     },
     StartManagers{
-        clients: ClientsHashMap<ClientSender>,
-        topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
-        clients_addresses: ClientsHashMap<SocketAddr>,
-        clients_structs: ClientsHashMap<Arc<Mutex<Client>>>,
-        b_running: Arc<bool>,
         server_sender: ServerSocket
     },
     UpdateServerLastRequest{
@@ -60,19 +47,13 @@ pub enum ClientActions {
     HandlePong {
         ping_id: u8, // The ping request that is answered
         current_time: u128, // Server time when the request has been received
-        pings_ref: PingsHashMap, // contain all ping request sent by the server
     },
     HandleTopicRequest{
         server_socket: ServerSocket,
         buffer: [u8; 1024],
-        topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
         client_sender: ClientSender
     },
     HandleDisconnect{
-        topics_subscribers: TopicsHashMap<HashSet<ClientId>>,
-        clients_ref: ClientsHashMap<ClientSender>,
-        clients_addresses: ClientsHashMap<SocketAddr>,
-        clients_structs: ClientsHashMap<Arc<Mutex<Client>>>
     }
 }
 
@@ -94,13 +75,11 @@ pub fn now_ms() -> u128
  * signe (sent any request) under the heartbeat period.
  *
  * @param client_sender: ClientSender, The client channel used to fire commands
- * @param config: Arc<Config>, used to access the HEARTBEAT_PERIOD
  *
  * @return bool
  */
 pub async fn client_has_sent_life_sign(
     client_sender: ClientSender,
-    config: Arc<Config>
 ) -> bool
 {
     // 1 - Get the current time
@@ -127,8 +106,8 @@ pub async fn client_has_sent_life_sign(
 
     // 4 - Compute the last time the client should have sent life signe.
     // = now - Heartbeat_period (in ms)
-    let should_have_give_life_sign = now - (config.heart_beat_period*1000 ) as u128;
-    log(Warning, ClientManager, format!("Calcul du temps : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign), config);
+    let should_have_give_life_sign = now - (CONFIG.heart_beat_period*1000 ) as u128;
+    log(Warning, ClientManager, format!("Calcul du temps : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign));
     // return true if the last request is sooner than the current time minus the heartbeat_period
     return last_client_request >= should_have_give_life_sign;
 }

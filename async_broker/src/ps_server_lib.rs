@@ -200,7 +200,7 @@ pub async fn handle_pong(
     client_id: u64,
     ping_id: u8,
     current_time: u128,
-    pings_ref: PingsHashMap,
+    PINGS_REF: PingsHashMap,
     clients_ping: Arc<RwLock<HashMap<u64, u128>>>,
     clients: ClientsHashMap<SocketAddr>,
     config: Arc<Config>,
@@ -209,11 +209,11 @@ pub async fn handle_pong(
     if !clients.read().await.contains_key(&client_id) { return; };
 
     // 1 - get the mutable ref of all ping request
-    let mut pings_ref_mut = pings_ref.lock().await;
+    let mut PINGS_REF_mut = PINGS_REF.lock().await;
     // 2 - compute the round trip
-    let round_trip = (current_time - pings_ref_mut.get(&ping_id).unwrap()) / 2;
+    let round_trip = (current_time - PINGS_REF_mut.get(&ping_id).unwrap()) / 2;
     // 3 - free the ping_id
-    pings_ref_mut.remove(&ping_id);
+    PINGS_REF_mut.remove(&ping_id);
     // 4 - set the ping for the client_id
     clients_ping.write().await.entry(client_id)
         .and_modify(|v| *v = round_trip)
