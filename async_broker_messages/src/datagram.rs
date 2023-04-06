@@ -400,7 +400,7 @@ pub fn get_bytes_from_slice(
     }
 
     // 2 - return the correct slice
-    buffer[from..to+1].to_vec()
+    buffer[from..to+1].into()
 }
 
 /** ==================================
@@ -420,9 +420,7 @@ impl RQ_Connect {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let bytes = [u8::from(self.message_type)].into();
-
-        return bytes;
+        return [u8::from(self.message_type)].into();
     }
 }
 
@@ -450,10 +448,11 @@ impl RQ_Connect_ACK_OK {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
-        bytes.append(&mut [u8::from(self.status)].into());
-        bytes.append(&mut self.peer_id.to_le_bytes().into());
-        bytes.append(&mut self.heartbeat_period.to_le_bytes().into());
+        let mut bytes: Vec<u8> = Vec::with_capacity(12);
+        bytes.push(u8::from(self.message_type));
+        bytes.push(u8::from(self.status));
+        bytes.extend(self.peer_id.to_le_bytes().into_iter());
+        bytes.extend(self.heartbeat_period.to_le_bytes().into_iter());
 
         return bytes;
     }
@@ -484,12 +483,13 @@ impl RQ_Connect_ACK_ERROR {
         RQ_Connect_ACK_ERROR { message_type: MessageType::CONNECT_ACK, status: ConnectStatus::FAILURE, message_size, reason }
     }
 
-    pub fn as_bytes(&mut self) -> Vec<u8>
+    pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
-        bytes.append(&mut self.message_size.to_le_bytes().into());
-        bytes.append(&mut [u8::from(self.status)].into());
-        bytes.append(&mut self.reason);
+        let mut bytes: Vec<u8> = Vec::with_capacity(4 + self.reason.len());
+        bytes.push(u8::from(self.message_type));
+        bytes.extend(self.message_size.to_le_bytes().into_iter());
+        bytes.push(u8::from(self.status));
+        bytes.extend(&mut self.reason.iter());
 
         return bytes;
     }
@@ -518,9 +518,7 @@ impl RQ_Heartbeat {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].into();
-
-        return bytes;
+        return [u8::from(self.message_type)].into();
     }
 }
 
@@ -544,9 +542,7 @@ impl RQ_Heartbeat_Request {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].into();
-
-        return bytes;
+        return [u8::from(self.message_type)].into();
     }
 }
 
@@ -571,9 +567,9 @@ impl RQ_Ping {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
+        let mut bytes: Vec<u8> = Vec::with_capacity(2);
+        bytes.push(u8::from(self.message_type));
         bytes.push(self.ping_id);
-
         return bytes;
     }
 }
@@ -600,9 +596,9 @@ impl RQ_Pong {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
+        let mut bytes: Vec<u8> = Vec::with_capacity(2);
+        bytes.push(u8::from(self.message_type));
         bytes.push(self.ping_id);
-
         return bytes;
     }
 }
@@ -629,9 +625,9 @@ impl RQ_Shutdown {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
-        bytes.append(&mut [u8::from(self.reason)].into());
-
+        let mut bytes: Vec<u8> = Vec::with_capacity(2);
+        bytes.push(u8::from(self.message_type));
+        bytes.push(u8::from(self.reason));
         return bytes;
     }
 }
@@ -658,9 +654,9 @@ impl RQ_OpenStream {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
-        bytes.append(&mut [u8::from(self.stream_type)].into());
-
+        let mut bytes: Vec<u8> = Vec::with_capacity(2);
+        bytes.push(u8::from(self.message_type));
+        bytes.push(u8::from(self.stream_type));
         return bytes;
     }
 }
@@ -688,13 +684,13 @@ impl RQ_TopicRequest {
         RQ_TopicRequest { message_type: MessageType::TOPIC_REQUEST, action, size, topic_id }
     }
 
-    pub fn as_bytes(&mut self) -> Vec<u8>
+    pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
-        bytes.append(&mut self.size.to_le_bytes().into());
-        bytes.append(&mut [u8::from(self.action)].into());
-        bytes.append(&mut self.topic_id.to_le_bytes().into());
-
+        let mut bytes: Vec<u8> = Vec::with_capacity(12);
+        bytes.push(u8::from(self.message_type));
+        bytes.extend(self.size.to_le_bytes());
+        bytes.push(u8::from(self.action));
+        bytes.extend(self.topic_id.to_le_bytes());
         return bytes;
     }
 }
@@ -727,10 +723,10 @@ impl RQ_TopicRequest_ACK {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
-        bytes.append(&mut [u8::from(self.status)].into());
-        bytes.append(&mut self.topic_id.to_le_bytes().into());
-
+        let mut bytes: Vec<u8> = Vec::with_capacity(10);
+        bytes.push(u8::from(self.message_type));
+        bytes.push(u8::from(self.status));
+        bytes.extend(self.topic_id.to_le_bytes());
         return bytes;
     }
 }
@@ -759,11 +755,12 @@ impl RQ_TopicRequest_NACK{
         RQ_TopicRequest_NACK { message_type: MessageType::TOPIC_REQUEST_ACK, status, size, error_message: error_message.as_bytes().into()}
     }
 
-    pub fn as_bytes(&mut self) -> Vec<u8>
+    pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
-        bytes.append(&mut [u8::from(self.status)].into());
-        bytes.append(&mut self.error_message);
+        let mut bytes: Vec<u8> = Vec::with_capacity(2 + self.error_message.len());
+        bytes.push(u8::from(self.message_type));
+        bytes.push(u8::from(self.status));
+        bytes.extend(self.error_message.iter());
 
         return bytes;
     }
@@ -796,14 +793,14 @@ impl RQ_Data {
         RQ_Data { message_type: MessageType::DATA, size, sequence_number, topic_id, data: payload }
     }
 
-    pub fn as_bytes(&mut self) -> Vec<u8>
+    pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
-        bytes.append(&mut self.size.to_le_bytes().into());
-        bytes.append(&mut self.sequence_number.to_le_bytes().into());
-        bytes.append(&mut self.topic_id.to_le_bytes().into());
-        bytes.append(&mut self.data);
-
+        let mut bytes: Vec<u8> = Vec::with_capacity(15 + self.data.len());
+        bytes.push(u8::from(self.message_type));
+        bytes.extend(self.size.to_le_bytes());
+        bytes.extend(self.sequence_number.to_le_bytes());
+        bytes.extend(self.topic_id.to_le_bytes());
+        bytes.extend(self.data.iter());
         return bytes;
     }
 }
