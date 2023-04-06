@@ -9,7 +9,7 @@ use crate::config::{LogLevel};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::LogSource::*;
-use crate::types::{ClientId, ClientSender, ServerSocket, TopicId};
+use crate::types::{ClientId, ClientSender, ServerSocket};
 
 /**
  * LogSource are used to display prefix and filter log messages.
@@ -208,7 +208,7 @@ pub async fn is_online(
     return clients_read.contains_key(&client_id);
 }
 
-const FNV_PRIME: u64 = 1099511628211;
+/*const FNV_PRIME: u64 = 1099511628211;
 const FNV_OFFSET: u64 = 14695981039346656037;
 /**
  * This method hash the passed string and return
@@ -232,7 +232,7 @@ pub fn custom_string_hash(
     });
     // 3 -  return the hashed value
     hash
-}
+}*/
 
 
 /**
