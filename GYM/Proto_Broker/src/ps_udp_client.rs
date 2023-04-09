@@ -101,7 +101,7 @@ impl Client {
         self.create_topic_test();
         let random_msg: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
-            .take(500)
+            .take(1000)
             .map(char::from)
             .collect();
 
@@ -155,12 +155,228 @@ impl Client {
                                 let socket = self.socket.clone();
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
-                                /*tokio::spawn(async move{
+                                tokio::spawn(async move{
                                     while true {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
-                                });*/
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
+                                let socket = self.socket.clone();
+                                let topic_id = self.topic_id;
+                                let msg = random_msg.clone();
+                                tokio::spawn(async move{
+                                    while true {
+                                        socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
+                                        sequence_number +=1;
+                                    }
+                                });
                             }
                         }
                         MessageType::TOPIC_REQUEST_NACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::PONG => {}
