@@ -181,7 +181,7 @@ impl Client {
                                     let map = CLIENTS_SENDERS_REF.read().await;
                                     map.get(&client).unwrap().clone()
                                 };
-                                let data = RQ_Data::new(data_rq.sequence_number, data_rq.topic_id, data_rq.data.clone());
+                                let mut data = RQ_Data::new(data_rq.sequence_number, data_rq.topic_id, data_rq.data.clone());
                                 let data = data.as_bytes();
                                 let client_addr = {
                                     // use closure to reduce the lock lifetime
@@ -284,8 +284,6 @@ impl Client {
                         tokio::spawn(async move {
                             // 1 - Init local variables
                             let topic_rq = RQ_TopicRequest::from(buffer.as_ref());
-                            let topic_path = String::from_utf8(topic_rq.payload).unwrap();
-                            let topic_hash = custom_string_hash(&topic_path);
                             let result;
 
                             match topic_rq.action {
@@ -293,7 +291,7 @@ impl Client {
                                     // 1 - check if topic exist, then insert/update the value by adding the client id to the topic
                                     let is_subscribed = {
                                         let mut topics_sub_write = TOPICS_SUBSCRIBERS_REF.write().await;
-                                        let subscribers_set = topics_sub_write.entry(topic_hash)
+                                        let subscribers_set = topics_sub_write.entry(topic_rq.topic_id)
                                             .or_insert({
                                                 // Create a new hashset and insert the client
                                                 let new_hash = HashSet::new();
@@ -305,7 +303,7 @@ impl Client {
                                     // this is false when the client is already sub
                                     if is_subscribed {
                                         // 2 - inform the client that he's subscribed
-                                        let cmd = AddSubscribedTopic { topic_id: topic_hash };
+                                        let cmd = AddSubscribedTopic { topic_id: topic_rq.topic_id };
                                         let cmd_sender = client_sender.clone();
                                         tokio::spawn(async move {
                                             match cmd_sender.send(cmd).await {
@@ -319,14 +317,14 @@ impl Client {
                                         // 3 - respond with a topic ack
                                         result = send_datagram(
                                             server_socket.clone(),
-                                            &RQ_TopicRequest_ACK::new(topic_hash, TopicsResponse::SUCCESS_SUB).as_bytes(),
+                                            &RQ_TopicRequest_ACK::new(topic_rq.topic_id, TopicsResponse::SUCCESS_SUB).as_bytes(),
                                             client_addr,
                                             client_sender,
                                         ).await;
 
                                         match result {
                                             Ok(_) => {
-                                                log(Info, TopicHandler, format!("{} has successfully sub the topic {}", client_id, topic_hash));
+                                                log(Info, TopicHandler, format!("{} has successfully sub the topic {}", client_id, topic_rq.topic_id));
                                             }
                                             Err(error) => {
                                                 log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error));
@@ -336,14 +334,14 @@ impl Client {
                                         // 2bis - Respond with an error message
                                         result = send_datagram(
                                             server_socket.clone(),
-                                            &RQ_TopicRequest_NACK::new(TopicsResponse::FAILURE_SUB, "Already subscribed to {}.".to_string()).as_bytes(),
+                                            &RQ_TopicRequest_NACK::new(TopicsResponse::FAILURE_SUB, "Already subscribed to {}.").as_bytes(),
                                             client_addr,
                                             client_sender,
                                         ).await;
 
                                         match result {
                                             Ok(_) => {
-                                                log(Info, TopicHandler, format!("{} has failed sub the topic {} (ALREADY SUB)", client_id, topic_hash));
+                                                log(Info, TopicHandler, format!("{} has failed sub the topic {} (ALREADY SUB)", client_id, topic_rq.topic_id));
                                             }
                                             Err(error) => {
                                                 log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error));
@@ -355,11 +353,11 @@ impl Client {
                                     // get the hash of the topic
                                     // Remove it from the common array
                                     {
-                                        TOPICS_SUBSCRIBERS_REF.write().await.entry(topic_hash).and_modify(|vec| { vec.retain(|e| *e != client_id) });
+                                        TOPICS_SUBSCRIBERS_REF.write().await.entry(topic_rq.topic_id).and_modify(|vec| { vec.retain(|e| *e != client_id) });
                                     }
 
                                     // remove it from the personal client set
-                                    let cmd = RemoveSubscribedTopic { topic_id: topic_hash };
+                                    let cmd = RemoveSubscribedTopic { topic_id: topic_rq.topic_id };
                                     let cmd_sender = client_sender.clone();
                                     tokio::spawn(async move {
                                         match cmd_sender.send(cmd).await {
@@ -372,14 +370,14 @@ impl Client {
 
                                     result = send_datagram(
                                         server_socket.clone(),
-                                        &RQ_TopicRequest_ACK::new(topic_hash, TopicsResponse::SUCCESS_USUB).as_bytes(),
+                                        &RQ_TopicRequest_ACK::new(topic_rq.topic_id, TopicsResponse::SUCCESS_USUB).as_bytes(),
                                         client_addr,
                                         client_sender,
                                     ).await;
 
                                     match result {
                                         Ok(_) => {
-                                            log(Info, TopicHandler, format!("{} has successfully unsub the topic {}", client_id, topic_hash));
+                                            log(Info, TopicHandler, format!("{} has successfully unsub the topic {}", client_id, topic_rq.topic_id));
                                         }
                                         Err(error) => {
                                             log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error));

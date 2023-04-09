@@ -1,5 +1,7 @@
 #![allow(non_camel_case_types, unused)]
 
+use std::str::from_utf8;
+pub type Size = u16;
 
 /** ==================================
 *
@@ -8,8 +10,10 @@
 *
 ** ================================*/
 
-// Message type are used to translate
-// request type to the corresponding code
+/**
+ * MessageType are used to translate request type
+ * to the corresponding hexadecimal code.
+ */
 #[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum MessageType {
@@ -30,28 +34,40 @@ pub enum MessageType {
     UNKNOWN,
 }
 
-pub fn display_message_type(message: MessageType) -> String {
+/**
+ * This function return the string name of the MessageType given.
+ *
+ * @param message: MessageType, the source to translate into string.
+ *
+ * @return string, the corresponding name
+ */
+pub fn display_message_type<'a>(message: MessageType) -> &'a str {
     match message {
-        MessageType::CONNECT => "Connect".to_string(),
-        MessageType::CONNECT_ACK => "Connect_ACK".to_string(),
-        MessageType::OPEN_STREAM => "Open_Stream".to_string(),
-        MessageType::SHUTDOWN => "Shutdown".to_string(),
-        MessageType::HEARTBEAT => "HeartBeat".to_string(),
-        MessageType::HEARTBEAT_REQUEST => "HeartBeat_Request".to_string(),
-        MessageType::PING => "Ping".to_string(),
-        MessageType::PONG => "Pong".to_string(),
-        MessageType::TOPIC_REQUEST => "Topic_Request".to_string(),
-        MessageType::TOPIC_REQUEST_ACK => "Topic_Request_Ack".to_string(),
-        MessageType::TOPIC_REQUEST_NACK => "Topic_Request_Nack".to_string(),
-        MessageType::OBJECT_REQUEST => "Object_Request".to_string(),
-        MessageType::OBJECT_REQUEST_ACK => "Object_Request_Ack".to_string(),
-        MessageType::DATA => "Data".to_string(),
-        MessageType::UNKNOWN => "Unknown".to_string()
+        MessageType::CONNECT => "Connect",
+        MessageType::CONNECT_ACK => "Connect_ACK",
+        MessageType::OPEN_STREAM => "Open_Stream",
+        MessageType::SHUTDOWN => "Shutdown",
+        MessageType::HEARTBEAT => "HeartBeat",
+        MessageType::HEARTBEAT_REQUEST => "HeartBeat_Request",
+        MessageType::PING => "Ping",
+        MessageType::PONG => "Pong",
+        MessageType::TOPIC_REQUEST => "Topic_Request",
+        MessageType::TOPIC_REQUEST_ACK => "Topic_Request_Ack",
+        MessageType::TOPIC_REQUEST_NACK => "Topic_Request_Nack",
+        MessageType::OBJECT_REQUEST => "Object_Request",
+        MessageType::OBJECT_REQUEST_ACK => "Object_Request_Ack",
+        MessageType::DATA => "Data",
+        MessageType::UNKNOWN => "Unknown",
     }
 }
 
-impl Eq for MessageType {}
-
+/**
+ * This function convert a u8 to a MessageType
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return MessageType
+ */
 impl From<u8> for MessageType {
     fn from(value: u8) -> Self {
         match value {
@@ -74,6 +90,13 @@ impl From<u8> for MessageType {
     }
 }
 
+/**
+ * This function convert a MessageType to an u8
+ *
+ * @param value: MessageType, The source to convert
+ *
+ * @return u8
+ */
 impl From<MessageType> for u8 {
     fn from(value: MessageType) -> Self {
         match value {
@@ -96,9 +119,10 @@ impl From<MessageType> for u8 {
     }
 }
 
-
-// Connect status are all possible status
-// in a CONNECT_ACK request
+/**
+ * ConnectStatus are all possible status
+ * in a CONNECT_ACK request.
+ */
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum ConnectStatus {
@@ -107,6 +131,13 @@ pub enum ConnectStatus {
     UNKNOWN,
 }
 
+/**
+ * This function convert a ConnectStatus to an u8
+ *
+ * @param value: ConnectStatus, The source to convert
+ *
+ * @return u8
+ */
 impl From<ConnectStatus> for u8 {
     fn from(value: ConnectStatus) -> Self {
         match value {
@@ -117,6 +148,13 @@ impl From<ConnectStatus> for u8 {
     }
 }
 
+/**
+ * This function convert a u8 to a ConnectStatus
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return ConnectStatus
+ */
 impl From<u8> for ConnectStatus {
     fn from(value: u8) -> Self {
         match value {
@@ -128,8 +166,10 @@ impl From<u8> for ConnectStatus {
 }
 
 
-// End connexion reasons are used to
-// detail the reason of the shutdown request.
+/**
+ * End connexion reasons are used to
+ * detail the reason of the shutdown request.
+ */
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum EndConnexionReason {
@@ -138,6 +178,13 @@ pub enum EndConnexionReason {
     UNKNOWN,
 }
 
+/**
+ * This function convert a u8 to an EndConnexionReason
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return EndConnexionReason
+ */
 impl From<u8> for EndConnexionReason {
     fn from(value: u8) -> Self {
         match value {
@@ -148,6 +195,13 @@ impl From<u8> for EndConnexionReason {
     }
 }
 
+/**
+ * This function convert an EndConnexionReason to an u8
+ *
+ * @param value: EndConnexionReason, The source to convert
+ *
+ * @return u8
+ */
 impl From<EndConnexionReason> for u8 {
     fn from(value: EndConnexionReason) -> Self {
         match value {
@@ -158,8 +212,10 @@ impl From<EndConnexionReason> for u8 {
     }
 }
 
-// End connexion reasons are used to
-// detail the reason of the shutdown request.
+/**
+ * Stream type are used to open stream
+ * between the broker and a client.
+ */
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum StreamType {
@@ -169,6 +225,13 @@ pub enum StreamType {
     UNKNOWN,
 }
 
+/**
+ * This function convert a StreamType to an u8
+ *
+ * @param value: StreamType, The source to convert
+ *
+ * @return u8
+ */
 impl From<u8> for StreamType {
     fn from(value: u8) -> Self {
         match value {
@@ -180,6 +243,13 @@ impl From<u8> for StreamType {
     }
 }
 
+/**
+ * This function convert an u8 to an StreamType
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return StreamType
+ */
 impl From<StreamType> for u8 {
     fn from(value: StreamType) -> Self {
         match value {
@@ -191,8 +261,10 @@ impl From<StreamType> for u8 {
     }
 }
 
-// Topics action are all actions that
-// a peer can do in a TOPICS_REQUEST
+/**
+ * Topics action are all actions that
+ * a peer can do in a TOPICS_REQUEST
+ */
 #[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum TopicsAction {
@@ -201,6 +273,13 @@ pub enum TopicsAction {
     UNKNOWN,
 }
 
+/**
+ * This function convert a TopicsAction to an u8
+ *
+ * @param value: TopicsActions, The source to convert
+ *
+ * @return u8
+ */
 impl From<TopicsAction> for u8 {
     fn from(value: TopicsAction) -> Self {
         match value {
@@ -211,6 +290,13 @@ impl From<TopicsAction> for u8 {
     }
 }
 
+/**
+ * This function convert an u8 to a TopicsActions
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return TopicsActions
+ */
 impl From<u8> for TopicsAction {
     fn from(value: u8) -> Self {
         match value {
@@ -221,8 +307,10 @@ impl From<u8> for TopicsAction {
     }
 }
 
-// Topics response are all possible response
-// type to a TOPICS_REQUEST
+/**
+ * Topics response are all possible response
+ * type to a TOPICS_REQUEST
+ */
 #[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum TopicsResponse {
@@ -233,6 +321,13 @@ pub enum TopicsResponse {
     UNKNOWN,
 }
 
+/**
+ * This function convert an TopicsResponse to an u8
+ *
+ * @param value: TopicsResponse, The source to convert
+ *
+ * @return u8
+ */
 impl From<TopicsResponse> for u8 {
     fn from(value: TopicsResponse) -> Self {
         match value {
@@ -245,6 +340,13 @@ impl From<TopicsResponse> for u8 {
     }
 }
 
+/**
+ * This function convert an u8 to a TopicsResponse
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return TopicsResponse
+ */
 impl From<u8> for TopicsResponse {
     fn from(value: u8) -> Self {
         match value {
@@ -257,27 +359,29 @@ impl From<u8> for TopicsResponse {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Size {
-    pub size: u16,
-}
-impl Size {
-    pub const fn new(size: u16) -> Size {
-        Size {
-            size,
-        }
-    }
-}
-
-
+/**
+ * This functions return a bytes slice according to
+ * the given bounds. FROM and TO are include in the returned slice.
+ *
+ * @param buffer: &[u8], the original array,
+ * @param from: usize, first bound,
+ * @param to: usize, last bound,
+ *
+ * @return Vec<u8>, the slice requested
+ */
 pub fn get_bytes_from_slice(
     buffer: &[u8],
     from: usize,
     to: usize
 ) -> Vec<u8> {
-    if to < from {
-        panic!("from is greater than to");
+    // 1 - check bound validity
+    match () {
+        _ if to < from => panic!("from is greater than to"),
+        _ if to >= buffer.len() => panic!("to is greater than the last index"),
+        _ => (),
     }
+
+    // 2 - return the correct slice
     buffer[from..to+1].to_vec()
 }
 
@@ -298,7 +402,7 @@ impl RQ_Connect {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let bytes = [u8::from(self.message_type)].to_vec();
+        let bytes = [u8::from(self.message_type)].into();
 
         return bytes;
     }
@@ -307,7 +411,7 @@ impl RQ_Connect {
 impl From<&[u8]> for RQ_Connect {
     fn from(value: &[u8]) -> Self {
         RQ_Connect {
-            message_type: MessageType::from(value.first().unwrap().clone()),
+            message_type: MessageType::from(*value.first().unwrap()),
         }
     }
 }
@@ -328,10 +432,10 @@ impl RQ_Connect_ACK_OK {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].to_vec();
-        bytes.append(&mut [u8::from(self.status)].to_vec());
-        bytes.append(&mut self.peer_id.to_le_bytes().to_vec());
-        bytes.append(&mut self.heartbeat_period.to_le_bytes().to_vec());
+        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
+        bytes.append(&mut [u8::from(self.status)].into());
+        bytes.append(&mut self.peer_id.to_le_bytes().into());
+        bytes.append(&mut self.heartbeat_period.to_le_bytes().into());
 
         return bytes;
     }
@@ -357,17 +461,17 @@ pub struct RQ_Connect_ACK_ERROR {
 
 impl RQ_Connect_ACK_ERROR {
     pub fn new(message: &str) -> RQ_Connect_ACK_ERROR {
-        let reason = message.as_bytes().to_vec();
-        let message_size = Size::new((reason.len() + 1) as u16);
+        let reason: Vec<u8> = message.as_bytes().into();
+        let message_size = (reason.len() + 1) as u16;
         RQ_Connect_ACK_ERROR { message_type: MessageType::CONNECT_ACK, status: ConnectStatus::FAILURE, message_size, reason }
     }
 
-    pub fn as_bytes(&self) -> Vec<u8>
+    pub fn as_bytes(&mut self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].to_vec();
-        bytes.append(&mut self.message_size.size.to_le_bytes().to_vec());
-        bytes.append(&mut [u8::from(self.status)].to_vec());
-        bytes.append(&mut self.reason.clone());
+        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
+        bytes.append(&mut self.message_size.to_le_bytes().into());
+        bytes.append(&mut [u8::from(self.status)].into());
+        bytes.append(&mut self.reason);
 
         return bytes;
     }
@@ -379,7 +483,7 @@ impl From<&[u8]> for RQ_Connect_ACK_ERROR {
         RQ_Connect_ACK_ERROR {
             message_type: MessageType::CONNECT_ACK,
             status: ConnectStatus::FAILURE,
-            message_size: Size::new(size),
+            message_size: size,
             reason: get_bytes_from_slice(buffer, 4, (4 + size - 1) as usize),
         }
     }
@@ -396,7 +500,7 @@ impl RQ_Heartbeat {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].to_vec();
+        let mut bytes = [u8::from(self.message_type)].into();
 
         return bytes;
     }
@@ -422,7 +526,7 @@ impl RQ_Heartbeat_Request {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].to_vec();
+        let mut bytes = [u8::from(self.message_type)].into();
 
         return bytes;
     }
@@ -449,7 +553,7 @@ impl RQ_Ping {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].to_vec();
+        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
         bytes.push(self.ping_id);
 
         return bytes;
@@ -460,7 +564,7 @@ impl From<&[u8]> for RQ_Ping {
     fn from(buffer: &[u8]) -> Self {
         RQ_Ping {
             message_type: MessageType::PING,
-            ping_id: buffer.get(1).unwrap().clone(),
+            ping_id: *buffer.get(1).unwrap(),
         }
     }
 }
@@ -478,7 +582,7 @@ impl RQ_Pong {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].to_vec();
+        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
         bytes.push(self.ping_id);
 
         return bytes;
@@ -489,7 +593,7 @@ impl From<&[u8]> for RQ_Pong {
     fn from(buffer: &[u8]) -> Self {
         RQ_Pong {
             message_type: MessageType::PONG,
-            ping_id: buffer.get(1).unwrap().clone(),
+            ping_id: *buffer.get(1).unwrap(),
         }
     }
 }
@@ -507,8 +611,8 @@ impl RQ_Shutdown {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].to_vec();
-        bytes.append(&mut [u8::from(self.reason)].to_vec());
+        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
+        bytes.append(&mut [u8::from(self.reason)].into());
 
         return bytes;
     }
@@ -518,7 +622,7 @@ impl From<&[u8]> for RQ_Shutdown {
     fn from(buffer: &[u8]) -> Self {
         RQ_Shutdown {
             message_type: MessageType::SHUTDOWN,
-            reason: EndConnexionReason::from(buffer.get(1).unwrap().clone()),
+            reason: EndConnexionReason::from(*buffer.get(1).unwrap()),
         }
     }
 }
@@ -536,8 +640,8 @@ impl RQ_OpenStream {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].to_vec();
-        bytes.append(&mut [u8::from(self.stream_type)].to_vec());
+        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
+        bytes.append(&mut [u8::from(self.stream_type)].into());
 
         return bytes;
     }
@@ -557,22 +661,21 @@ pub struct RQ_TopicRequest {
     pub message_type: MessageType, // 1 byte
     pub action: TopicsAction, // 1 byte
     pub size: Size, // 2 bytes (u16)
-    pub payload: Vec<u8>, // size bytes
+    pub topic_id: u64, // size bytes
 }
 
 impl RQ_TopicRequest {
-    pub fn new(action: TopicsAction, payload: &str) -> RQ_TopicRequest {
-        let payload = payload.as_bytes().to_vec();
-        let size = Size::new((payload.len() + 1) as u16); // string length + 1 for the action
-        RQ_TopicRequest { message_type: MessageType::TOPIC_REQUEST, action, size, payload }
+    pub fn new(action: TopicsAction, topic_id: u64) -> RQ_TopicRequest {
+        let size = (8 + 1) as u16; // topic_id + 1 for the action
+        RQ_TopicRequest { message_type: MessageType::TOPIC_REQUEST, action, size, topic_id }
     }
 
-    pub fn as_bytes(&self) -> Vec<u8>
+    pub fn as_bytes(&mut self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].to_vec();
-        bytes.append(&mut self.size.size.to_le_bytes().to_vec());
-        bytes.append(&mut [u8::from(self.action)].to_vec());
-        bytes.append(&mut self.payload.clone());
+        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
+        bytes.append(&mut self.size.to_le_bytes().into());
+        bytes.append(&mut [u8::from(self.action)].into());
+        bytes.append(&mut self.topic_id.to_le_bytes().into());
 
         return bytes;
     }
@@ -580,14 +683,14 @@ impl RQ_TopicRequest {
 
 impl From<&[u8]> for RQ_TopicRequest {
     fn from(buffer: &[u8]) -> Self {
-        let size = Size::new(u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap()));
-        let payload_end = 4 + (size.size - 1) as usize;
+        let size = u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap());
+        let payload_end = 4 + (size - 1) as usize;
 
         RQ_TopicRequest {
             message_type: MessageType::TOPIC_REQUEST,
-            action: TopicsAction::from(buffer.get(3).unwrap().clone()),
+            action: TopicsAction::from(*buffer.get(3).unwrap()),
             size,
-            payload: buffer[4..payload_end].to_vec(),
+            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer,4,11).try_into().expect("Failed to get the topic id slice from the buffer in a RQ_TopicRequest from u8")),
         }
     }
 }
@@ -606,9 +709,9 @@ impl RQ_TopicRequest_ACK {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].to_vec();
-        bytes.append(&mut [u8::from(self.status)].to_vec());
-        bytes.append(&mut self.topic_id.to_le_bytes().to_vec());
+        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
+        bytes.append(&mut [u8::from(self.status)].into());
+        bytes.append(&mut self.topic_id.to_le_bytes().into());
 
         return bytes;
     }
@@ -618,8 +721,8 @@ impl From<&[u8]> for RQ_TopicRequest_ACK {
     fn from(buffer: &[u8]) -> Self {
         RQ_TopicRequest_ACK {
             message_type: MessageType::TOPIC_REQUEST_ACK,
-            status: TopicsResponse::from(buffer.get(1).unwrap().clone()),
-            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 2, 9).to_vec().try_into().expect("Failed to get the topic id slice from the buffer")),
+            status: TopicsResponse::from(*buffer.get(1).unwrap()),
+            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 2, 9).try_into().expect("Failed to get the topic id slice from the buffer a RQ_TopicRequest_ACK from u8")),
         }
     }
 }
@@ -628,34 +731,34 @@ pub struct RQ_TopicRequest_NACK {
     pub message_type: MessageType,
     pub status: TopicsResponse,
     pub size: Size,
-    pub error_message: String
+    pub error_message: Vec<u8>
 }
 
-impl RQ_TopicRequest_NACK {
+impl RQ_TopicRequest_NACK{
 
-    pub fn new(status: TopicsResponse, error_message: String) -> RQ_TopicRequest_NACK {
-        let size = Size::new((error_message.len() + 1) as u16); // string length + 1 for the action
-        RQ_TopicRequest_NACK { message_type: MessageType::TOPIC_REQUEST_ACK, status, size, error_message}
+    pub fn new(status: TopicsResponse, error_message: &str) -> RQ_TopicRequest_NACK {
+        let size = (error_message.len() + 1) as u16; // string length + 1 for the action
+        RQ_TopicRequest_NACK { message_type: MessageType::TOPIC_REQUEST_ACK, status, size, error_message: error_message.as_bytes().into()}
     }
 
-    pub fn as_bytes(&self) -> Vec<u8>
+    pub fn as_bytes(&mut self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].to_vec();
-        bytes.append(&mut [u8::from(self.status)].to_vec());
-        bytes.append(&mut self.error_message.to_string().as_bytes().to_vec());
+        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
+        bytes.append(&mut [u8::from(self.status)].into());
+        bytes.append(&mut self.error_message);
 
         return bytes;
     }
 }
 
-impl From<&[u8]> for RQ_TopicRequest_NACK {
+impl<'a> From<&[u8]> for RQ_TopicRequest_NACK {
     fn from(buffer: &[u8]) -> Self {
-        let size = Size::new(u16::from_le_bytes(get_bytes_from_slice(buffer, 2, 3).try_into().expect("Bad Size received")));
+        let size = u16::from_le_bytes(get_bytes_from_slice(buffer, 2, 3).try_into().expect("Bad Size received a RQ_TopicRequest_NACK from u8"));
         RQ_TopicRequest_NACK {
             message_type: MessageType::TOPIC_REQUEST_ACK,
             status: TopicsResponse::from(buffer.get(1).unwrap().clone()),
             size,
-            error_message: String::from_utf8(get_bytes_from_slice(buffer, 4, (4 + size.size - 1) as usize)).unwrap()
+            error_message: get_bytes_from_slice(buffer, 4, (4 + size - 1) as usize)
         }
     }
 }
@@ -671,17 +774,17 @@ pub struct RQ_Data{
 impl RQ_Data {
 
     pub fn new(sequence_number: u32, topic_id: u64, payload: Vec<u8>)-> RQ_Data {
-        let size = Size::new((payload.len() + 8) as u16); // payload length + 8 for topic id
+        let size = (payload.len() + 8) as u16; // payload length + 8 for topic id
         RQ_Data { message_type: MessageType::DATA, size, sequence_number, topic_id, data: payload }
     }
 
-    pub fn as_bytes(&self) -> Vec<u8>
+    pub fn as_bytes(&mut self) -> Vec<u8>
     {
-        let mut bytes = [u8::from(self.message_type)].to_vec();
-        bytes.append(&mut self.size.size.to_le_bytes().to_vec());
-        bytes.append(&mut self.sequence_number.to_le_bytes().to_vec());
-        bytes.append(&mut self.topic_id.to_le_bytes().to_vec());
-        bytes.append(&mut self.data.clone());
+        let mut bytes: Vec<u8> = [u8::from(self.message_type)].into();
+        bytes.append(&mut self.size.to_le_bytes().into());
+        bytes.append(&mut self.sequence_number.to_le_bytes().into());
+        bytes.append(&mut self.topic_id.to_le_bytes().into());
+        bytes.append(&mut self.data);
 
         return bytes;
     }
@@ -689,15 +792,15 @@ impl RQ_Data {
 
 impl From<&[u8]> for RQ_Data {
     fn from(buffer: &[u8]) -> Self {
-        let size = Size::new(u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap()));
-        let data_end = 15 + (size.size - 8) as usize;
+        let size = u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap());
+        let data_end = 15 + (size - 8) as usize;
 
         RQ_Data {
             message_type: MessageType::DATA,
             size,
             sequence_number: u32::from_le_bytes(buffer[3..].split_at(std::mem::size_of::<u32>()).0.try_into().unwrap()),
             topic_id: u64::from_le_bytes(buffer[7..].split_at(std::mem::size_of::<u64>()).0.try_into().unwrap()),
-            data: buffer[15..data_end].to_vec(),
+            data: buffer[15..data_end].into(),
         }
     }
 }

@@ -31,32 +31,32 @@ pub enum MessageType {
     UNKNOWN,
 }
 
-pub fn display_message_type(message: MessageType) -> String {
+pub fn display_message_type<'a>(message: MessageType) -> &'a str {
     match message {
-        MessageType::CONNECT => "Connect".to_string(),
-        MessageType::CONNECT_ACK => "Connect_ACK".to_string(),
-        MessageType::OPEN_STREAM => "Open_Stream".to_string(),
-        MessageType::SHUTDOWN => "Shutdown".to_string(),
-        MessageType::HEARTBEAT => "HeartBeat".to_string(),
-        MessageType::HEARTBEAT_REQUEST => "HeartBeat_Request".to_string(),
-        MessageType::PING => "Ping".to_string(),
-        MessageType::PONG => "Pong".to_string(),
-        MessageType::TOPIC_REQUEST => "Topic_Request".to_string(),
-        MessageType::TOPIC_REQUEST_ACK => "Topic_Request_Ack".to_string(),
-        MessageType::OBJECT_REQUEST => "Object_Request".to_string(),
-        MessageType::OBJECT_REQUEST_ACK => "Object_Request_Ack".to_string(),
-        MessageType::DATA => "Data".to_string(),
-        MessageType::UNKNOWN => "Unknown".to_string()
+        MessageType::CONNECT => "Connect",
+        MessageType::CONNECT_ACK => "Connect_ACK",
+        MessageType::OPEN_STREAM => "Open_Stream",
+        MessageType::SHUTDOWN => "Shutdown",
+        MessageType::HEARTBEAT => "HeartBeat",
+        MessageType::HEARTBEAT_REQUEST => "HeartBeat_Request",
+        MessageType::PING => "Ping",
+        MessageType::PONG => "Pong",
+        MessageType::TOPIC_REQUEST => "Topic_Request",
+        MessageType::TOPIC_REQUEST_ACK => "Topic_Request_Ack",
+        MessageType::OBJECT_REQUEST => "Object_Request",
+        MessageType::OBJECT_REQUEST_ACK => "Object_Request_Ack",
+        MessageType::DATA => "Data",
+        MessageType::UNKNOWN => "Unknown"
     }
 }
 
-pub fn display_loglevel(loglevel: LogLevel) -> String {
+pub fn display_loglevel<'a>(loglevel: LogLevel) -> &'a str {
     match loglevel {
-        LogLevel::All => "All".to_string(),
-        LogLevel::Info => "Info".to_string(),
-        LogLevel::Warning => "Warning".to_string(),
-        LogLevel::Error => "Error".to_string(),
-        LogLevel::Quiet => "Quiet".to_string(),
+        LogLevel::All => "All",
+        LogLevel::Info => "Info",
+        LogLevel::Warning => "Warning",
+        LogLevel::Error => "Error",
+        LogLevel::Quiet => "Quiet",
     }
 }
 
