@@ -17,7 +17,7 @@ use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::*;
 use crate::server_lib::LogSource::*;
-use crate::types::{ClientId, ClientSender, ClientsHashMap, PingsHashMap, ServerSocket, TopicsHashMap};
+use crate::types::{ClientId, ClientSender, ClientsHashMap, ObjectHashMap, PingsHashMap, ServerSocket, TopicsHashMap};
 
 mod config;
 mod datagram;
@@ -42,6 +42,9 @@ lazy_static! {
 
     // List of topic subscribers
     static ref TOPICS_SUBSCRIBERS_REF: TopicsHashMap<HashSet<ClientId>> = Arc::new(RwLock::new(HashMap::default())); // <Topic ID, [Clients ID]>
+
+    // List of Objects (group of topics)
+    static ref OBJECTS_TOPICS_REF: ObjectHashMap = Arc::new(RwLock::new(HashMap::default())); // <ObjectId, [TopicId]>
 }
 
 #[tokio::main]
@@ -339,7 +342,7 @@ async fn datagrams_handler(
                             };
                         });
                     }
-                    MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING | MessageType::TOPIC_REQUEST_NACK => {
+                    MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING | MessageType::TOPIC_REQUEST_NACK | MessageType::OBJECT_REQUEST_NACK => {
                         // 4.9 - invalid datagrams for the server
                         log(Warning, DatagramsHandler, format!("{} has sent an invalid datagram.", client_id));
                     }

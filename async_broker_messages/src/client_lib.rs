@@ -11,7 +11,7 @@ use crate::CONFIG;
 use crate::config::LogLevel::Warning;
 use crate::server_lib::log;
 use crate::server_lib::LogSource::ClientManager;
-use crate::types::{ClientSender,Responder, ServerSocket, TopicId};
+use crate::types::{ClientSender, PingId, Responder, ServerSocket, TopicId};
 
 
 /**
@@ -45,7 +45,7 @@ pub enum ClientActions {
         time: u128
     },
     HandlePong {
-        ping_id: u8, // The ping request that is answered
+        ping_id: PingId, // The ping request that is answered
         current_time: u128, // Server time when the request has been received
     },
     HandleTopicRequest{

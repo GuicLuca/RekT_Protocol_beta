@@ -1,8 +1,9 @@
 #![allow(non_camel_case_types, unused)]
 
+use std::mem::size_of;
 use std::str::from_utf8;
 use crate::config::LogLevel;
-use crate::types::Size;
+use crate::types::{ObjectId, PingId, Size};
 
 /** ==================================
 *
@@ -31,6 +32,7 @@ pub enum MessageType {
     TOPIC_REQUEST_NACK,
     OBJECT_REQUEST,
     OBJECT_REQUEST_ACK,
+    OBJECT_REQUEST_NACK,
     DATA,
     UNKNOWN,
 }
@@ -57,6 +59,7 @@ pub fn display_message_type<'a>(message: MessageType) -> &'a str {
         MessageType::TOPIC_REQUEST_NACK => "Topic_Request_Nack",
         MessageType::OBJECT_REQUEST => "Object_Request",
         MessageType::OBJECT_REQUEST_ACK => "Object_Request_Ack",
+        MessageType::OBJECT_REQUEST_NACK => "Object_Request_Nack",
         MessageType::DATA => "Data",
         MessageType::UNKNOWN => "Unknown",
     }
@@ -85,6 +88,7 @@ impl From<u8> for MessageType {
             0x46 => MessageType::TOPIC_REQUEST_NACK,
             0x08 => MessageType::OBJECT_REQUEST,
             0x48 => MessageType::OBJECT_REQUEST_ACK,
+            0x49 => MessageType::OBJECT_REQUEST_NACK,
             0x05 => MessageType::DATA,
             _ => MessageType::UNKNOWN
         }
@@ -114,6 +118,7 @@ impl From<MessageType> for u8 {
             MessageType::TOPIC_REQUEST_NACK => 0x46,
             MessageType::OBJECT_REQUEST => 0x08,
             MessageType::OBJECT_REQUEST_ACK => 0x48,
+            MessageType::OBJECT_REQUEST_NACK => 0x49,
             MessageType::DATA => 0x05,
             MessageType::UNKNOWN => 0xAA
         }
@@ -378,6 +383,109 @@ impl From<u8> for TopicsResponse {
 }
 
 /**
+ * Object identifier types are all possible source of identifier.
+ * It Represent the twoMSB of the Object identifier : XX
+ * 0--2------------64
+ * |XX| IDENTIFIER |
+ */
+#[derive(Copy, Clone)]
+#[repr(u8)]
+pub enum ObjectIdentifierType {
+    USER_GENERATED,
+    BROKER_GENERATED,
+    TEMPORARY,
+    UNKNOWN
+}
+
+
+/**
+ * This function convert an ObjectIdentifierType to an u8
+ *
+ * @param value: ObjectIdentifierType, The source to convert
+ *
+ * @return u8
+ */
+impl From<ObjectIdentifierType> for u8 {
+    fn from(value: ObjectIdentifierType) -> Self {
+        match value {
+            ObjectIdentifierType::USER_GENERATED => 0x00,
+            ObjectIdentifierType::BROKER_GENERATED => 0x01,
+            ObjectIdentifierType::TEMPORARY => 0x10,
+            ObjectIdentifierType::UNKNOWN => 0xAA,
+        }
+    }
+}
+
+/**
+ * This function convert an u8 to a ObjectIdentifierType
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return ObjectIdentifierType
+ */
+impl From<u8> for ObjectIdentifierType {
+    fn from(value: u8) -> Self {
+        match value {
+             0x00 => ObjectIdentifierType::USER_GENERATED,
+             0x01 => ObjectIdentifierType::BROKER_GENERATED,
+             0x10 => ObjectIdentifierType::TEMPORARY,
+             _ => ObjectIdentifierType::UNKNOWN,
+        }
+    }
+}
+
+
+/**
+ * Object Flags are all possible action in a
+ * OBJECT_REQUEST.
+ */
+#[derive(Copy, Clone)]
+#[repr(u8)]
+pub enum ObjectFlags {
+    CREATE,
+    UPDATE,
+    DELETE,
+    UNKNOWN,
+}
+
+
+/**
+ * This function convert an ObjectFlags to an u8
+ *
+ * @param value: ObjectFlags, The source to convert
+ *
+ * @return u8
+ */
+impl From<ObjectFlags> for u8 {
+    fn from(value: ObjectFlags) -> Self {
+        match value {
+            ObjectFlags::CREATE => 0x01,
+            ObjectFlags::UPDATE => 0x02,
+            ObjectFlags::DELETE => 0x04,
+            ObjectFlags::UNKNOWN => 0xAA,
+        }
+    }
+}
+
+/**
+ * This function convert an u8 to a ObjectFlags
+ *
+ * @param value: u8, The source to convert
+ *
+ * @return ObjectFlags
+ */
+impl From<u8> for ObjectFlags {
+    fn from(value: u8) -> Self {
+        match value {
+            0x01 => ObjectFlags::CREATE,
+            0x02 => ObjectFlags::UPDATE,
+            0x04 => ObjectFlags::DELETE,
+            _ => ObjectFlags::UNKNOWN,
+        }
+    }
+}
+
+/**
  * This functions return a bytes slice according to
  * the given bounds. FROM and TO are include in the returned slice.
  *
@@ -557,11 +665,11 @@ impl From<&[u8]> for RQ_Heartbeat_Request {
 //===== Sent to measure the latency between peer and broker
 pub struct RQ_Ping {
     pub message_type: MessageType,
-    pub ping_id: u8,
+    pub ping_id: PingId,
 }
 
 impl RQ_Ping {
-    pub const fn new(ping_id: u8) -> RQ_Ping {
+    pub const fn new(ping_id: PingId) -> RQ_Ping {
         RQ_Ping { message_type: MessageType::PING, ping_id }
     }
 
@@ -586,11 +694,11 @@ impl From<&[u8]> for RQ_Ping {
 //===== Sent to answer a ping request.
 pub struct RQ_Pong {
     pub message_type: MessageType,
-    pub ping_id: u8,
+    pub ping_id: PingId,
 }
 
 impl RQ_Pong {
-    pub const fn new(ping_id: u8) -> RQ_Ping {
+    pub const fn new(ping_id: PingId) -> RQ_Ping {
         RQ_Ping { message_type: MessageType::PONG, ping_id }
     }
 
@@ -678,6 +786,7 @@ pub struct RQ_TopicRequest {
     pub topic_id: u64, // size bytes
 }
 
+//===== Sent to subscribe a topic
 impl RQ_TopicRequest {
     pub fn new(action: TopicsAction, topic_id: u64) -> RQ_TopicRequest {
         let size = (8 + 1) as u16; // topic_id + 1 for the action
@@ -697,7 +806,7 @@ impl RQ_TopicRequest {
 
 impl From<&[u8]> for RQ_TopicRequest {
     fn from(buffer: &[u8]) -> Self {
-        let size = u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap());
+        let size = u16::from_le_bytes(buffer[1..].split_at(size_of::<u16>()).0.try_into().unwrap());
         let payload_end = 4 + (size - 1) as usize;
 
         RQ_TopicRequest {
@@ -766,7 +875,7 @@ impl RQ_TopicRequest_NACK{
     }
 }
 
-impl<'a> From<&[u8]> for RQ_TopicRequest_NACK {
+impl From<&[u8]> for RQ_TopicRequest_NACK {
     fn from(buffer: &[u8]) -> Self {
         let size = u16::from_le_bytes(get_bytes_from_slice(buffer, 2, 3).try_into().expect("Bad Size received a RQ_TopicRequest_NACK from u8"));
         RQ_TopicRequest_NACK {
@@ -807,45 +916,200 @@ impl RQ_Data {
 
 impl From<&[u8]> for RQ_Data {
     fn from(buffer: &[u8]) -> Self {
-        let size = u16::from_le_bytes(buffer[1..].split_at(std::mem::size_of::<u16>()).0.try_into().unwrap());
+        let size = u16::from_le_bytes(buffer[1..].split_at(size_of::<u16>()).0.try_into().unwrap());
         let data_end = 15 + (size - 8) as usize;
 
         RQ_Data {
             message_type: MessageType::DATA,
             size,
-            sequence_number: u32::from_le_bytes(buffer[3..].split_at(std::mem::size_of::<u32>()).0.try_into().unwrap()),
-            topic_id: u64::from_le_bytes(buffer[7..].split_at(std::mem::size_of::<u64>()).0.try_into().unwrap()),
+            sequence_number: u32::from_le_bytes(buffer[3..].split_at(size_of::<u32>()).0.try_into().unwrap()),
+            topic_id: u64::from_le_bytes(buffer[7..].split_at(size_of::<u64>()).0.try_into().unwrap()),
             data: buffer[15..data_end].into(),
         }
     }
 }
 
 
-/*
 //===== Sent to acknowledge a TOPIC_REQUEST
 pub struct RQ_ObjectRequest{
     pub message_type: MessageType,
-    pub status: TopicsResponse,
-    pub topic_id: u64
+    pub size: Size,
+    pub flags: ObjectFlags,
+    pub object_id: ObjectId,
+    pub topics: Vec<u64>
 }
 impl RQ_ObjectRequest {
-    pub const fn new(status: TopicsResponse, topic_id: u64)-> RQ_ObjectRequest {
-        RQ_ObjectRequest{message_type:MessageType::OBJECT_REQUEST, status, topic_id}
+    pub fn new(flags: ObjectFlags, object_id: u64, topics: Vec<u64>)-> RQ_ObjectRequest {
+        let size: u16 = (1 + 8 + topics.len() * size_of::<u64>()) as u16; // 1 = flags, 8 = object_id, x = size_of(topics)
+        RQ_ObjectRequest{
+            message_type:MessageType::OBJECT_REQUEST,
+            size,
+            flags,
+            object_id,
+            topics,
+        }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes: Vec<u8> = Vec::with_capacity(3 + self.size as usize); // 3 = messageType + size
+        bytes.push(u8::from(self.message_type));
+        bytes.extend(self.size.to_le_bytes());
+        bytes.push(u8::from(self.flags));
+        bytes.extend(self.object_id.to_le_bytes());
+        // The following line convert a Vec<u64> to his representation as bytes (Vec<u8>)
+        bytes.extend(self.topics.iter()
+                         .flat_map(|&x| {
+                             let bytes: [u8; 8] = x.to_le_bytes();
+                             bytes.into_iter()
+                         })
+                         .collect::<Vec<u8>>());
+        return bytes;
     }
 }
 
-//===== Sent to acknowledge a TOPIC_REQUEST
-pub struct RQ_ObjectRequest_ACK{
+impl From<&[u8]> for RQ_ObjectRequest {
+    fn from(buffer: &[u8]) -> Self {
+        let size = u16::from_le_bytes(buffer[1..].split_at(size_of::<u16>()).0.try_into().unwrap());
+        let topics: Vec<u64> = get_bytes_from_slice(buffer, 12, (size as usize - 9))
+            // Convert the bytes vector to a vector of topics id by grouping u8 into u64
+            .chunks_exact(8)
+            .map(|chunk| {
+                u64::from_le_bytes(chunk.try_into().unwrap())
+            })
+            .collect();
+
+        RQ_ObjectRequest {
+            message_type: MessageType::OBJECT_REQUEST,
+            size,
+            flags: ObjectFlags::from(buffer[3]),
+            object_id: u64::from_le_bytes(buffer[4..].split_at(size_of::<u64>()).0.try_into().unwrap()),
+            topics,
+        }
+    }
+}
+
+//===== Sent to acknowledge a OBJECT_REQUEST create
+pub struct RQ_ObjectRequestCreate_ACK{
     pub message_type: MessageType,
-    pub status: TopicsResponse,
-    pub topic_id: u64
+    pub flags: u8, // Bit field SXXX XDMC (S: Success/fail, X: Unused, D: delete, M : modify, C: Create)
+    pub old_object_id: u64,
+    pub final_object_id: u64
 }
-impl RQ_ObjectRequest_ACK {
-    pub const fn new(status: TopicsResponse, topic_id: u64)-> RQ_ObjectRequest_ACK {
-        RQ_ObjectRequest_ACK{message_type:MessageType::OBJECT_REQUEST_ACK, status, topic_id}
+impl RQ_ObjectRequestCreate_ACK {
+    pub fn new(flags: u8, old_id: u64, new_id: u64)-> RQ_ObjectRequestCreate_ACK {
+        RQ_ObjectRequestCreate_ACK{
+            message_type:MessageType::OBJECT_REQUEST_ACK,
+            flags,
+            old_object_id: old_id,
+            final_object_id: new_id
+        }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes: Vec<u8> = Vec::with_capacity(18);
+        bytes.push(u8::from(self.message_type));
+        bytes.push(u8::from(self.flags));
+        bytes.extend(self.old_object_id.to_le_bytes());
+        bytes.extend(self.final_object_id.to_le_bytes());
+
+        return bytes;
     }
 }
 
-//===== Sent to acknowledge a TOPIC_REQUEST
+impl From<&[u8]> for RQ_ObjectRequestCreate_ACK {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_ObjectRequestCreate_ACK {
+            message_type: MessageType::OBJECT_REQUEST_ACK,
+            flags: buffer[1],
+            old_object_id: u64::from_le_bytes(buffer[2..].split_at(size_of::<u64>()).0.try_into().unwrap()),
+            final_object_id: u64::from_le_bytes(buffer[10..].split_at(size_of::<u64>()).0.try_into().unwrap()),
+        }
+    }
+}
 
-*/
+//===== Sent to acknowledge a OBJECT_REQUEST delete or update
+pub struct RQ_ObjectRequestDefault_ACK{
+    pub message_type: MessageType,
+    pub flags: u8, // Bit field SXXX XDMC (S: Success/fail, X: Unused, D: delete, M : modify, C: Create)
+    pub object_id: u64,
+}
+impl RQ_ObjectRequestDefault_ACK {
+    pub fn new(flags: u8, old_id: u64)-> RQ_ObjectRequestDefault_ACK {
+        RQ_ObjectRequestDefault_ACK{
+            message_type:MessageType::OBJECT_REQUEST_ACK,
+            flags,
+            object_id: old_id,
+        }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes: Vec<u8> = Vec::with_capacity(18);
+        bytes.push(u8::from(self.message_type));
+        bytes.push(u8::from(self.flags));
+        bytes.extend(self.object_id.to_le_bytes());
+
+        return bytes;
+    }
+}
+
+impl From<&[u8]> for RQ_ObjectRequestDefault_ACK {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_ObjectRequestDefault_ACK {
+            message_type: MessageType::OBJECT_REQUEST_ACK,
+            flags: buffer[1],
+            object_id: u64::from_le_bytes(buffer[2..].split_at(size_of::<u64>()).0.try_into().unwrap()),
+        }
+    }
+}
+
+
+
+
+// ===== Sent in case of error for all action (Create update delete)
+pub struct RQ_ObjectRequest_NACK{
+    pub message_type: MessageType,
+    pub flags: u8, // Bit field SXXX XDMC (S: Success/fail, X: Unused, D: delete, M : modify, C: Create)
+    pub object_id: u64,
+    pub reason_size: Size,
+    pub reason: Vec<u8>
+}
+impl RQ_ObjectRequest_NACK {
+    pub fn new(flags: u8, object_id: u64, reason: &str)-> RQ_ObjectRequest_NACK {
+        let reason_vec: Vec<u8> = reason.as_bytes().into();
+        RQ_ObjectRequest_NACK{
+            message_type:MessageType::OBJECT_REQUEST_NACK,
+            flags,
+            object_id,
+            reason_size: reason_vec.len() as Size,
+            reason: reason_vec
+        }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes: Vec<u8> = Vec::with_capacity(12 + self.reason_size as usize);
+        bytes.push(u8::from(self.message_type));
+        bytes.push(u8::from(self.flags));
+        bytes.extend(self.object_id.to_le_bytes());
+        bytes.extend(self.reason_size.to_le_bytes());
+        bytes.extend(self.reason.iter());
+
+        return bytes;
+    }
+}
+
+impl From<&[u8]> for RQ_ObjectRequest_NACK {
+    fn from(buffer: &[u8]) -> Self {
+        let size: Size = u16::from_le_bytes(buffer[10..].split_at(size_of::<u16>()).0.try_into().unwrap());
+        RQ_ObjectRequest_NACK {
+            message_type: MessageType::OBJECT_REQUEST_NACK,
+            flags: buffer[1],
+            object_id: u64::from_le_bytes(buffer[2..].split_at(size_of::<u64>()).0.try_into().unwrap()),
+            reason_size: size,
+            reason: get_bytes_from_slice(buffer, 12, (size - 1) as usize)
+        }
+    }
+}

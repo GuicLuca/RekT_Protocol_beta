@@ -9,7 +9,7 @@ use crate::config::{LogLevel};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::LogSource::*;
-use crate::types::{ClientId, ClientSender, ServerSocket};
+use crate::types::{ClientId, ClientSender, PingId, ServerSocket};
 
 /**
  * LogSource are used to display prefix and filter log messages.
@@ -156,25 +156,23 @@ pub async fn save_server_last_request_sent(
 /**
  * This methods return a unique id for a new ping reference
  *
- * @param pings MutexGuard<HashMap<u8, u128>> : Hashmap containing all ping id and their time reference.
- *
- * @return u8
+ * @return PingId
  */
-fn get_new_ping_id() -> u8 {
-    // Return the XOR operation between the current time and a random u8
+fn get_new_ping_id() -> PingId {
+    // Return the XOR operation between the current time and a random PingId(unsigned int)
     return (SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Failed to calculate duration since UNIX_EPOCH")
-        .as_nanos() as u8) ^ rand::thread_rng().gen::<u8>();
+        .as_nanos() as PingId) ^ rand::thread_rng().gen::<PingId>();
 }
 
 /**
  * This method generate a new ping id and save the current time
  * as the "reference time" to compute the round trip later.
  *
- * @return u8, The new ping id.
+ * @return PingId, The new ping id.
  */
-pub async fn get_new_ping_reference() -> u8 {
+pub async fn get_new_ping_reference() -> PingId {
     // 1 - Generate a new unique id
     let key = get_new_ping_id();
 
@@ -207,32 +205,6 @@ pub async fn is_online(
     let clients_read = CLIENTS_SENDERS_REF.read().await;
     return clients_read.contains_key(&client_id);
 }
-
-/*const FNV_PRIME: u64 = 1099511628211;
-const FNV_OFFSET: u64 = 14695981039346656037;
-/**
- * This method hash the passed string and return
- * the result as a topic id.
- *
- * @param s &str: the string to hash
- *
- * @return TopicId: the hash of the string
- */
-pub fn custom_string_hash(
-    string: &str
-) -> TopicId {
-    // 1 - Init the hash with the offset
-    let mut hash = FNV_OFFSET;
-    // 2 - Loop through each bytes and do a XOR
-    // operation with the current hash and the bit value.
-    // Finally multiply the result by a constant
-    string.bytes().into_iter().for_each(|b| {
-        hash ^= b as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    });
-    // 3 -  return the hashed value
-    hash
-}*/
 
 
 /**

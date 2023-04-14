@@ -181,7 +181,7 @@ impl Client {
                                     let map = CLIENTS_SENDERS_REF.read().await;
                                     map.get(&client).unwrap().clone()
                                 };
-                                let mut data = RQ_Data::new(data_rq.sequence_number, data_rq.topic_id, data_rq.data.clone());
+                                let data = RQ_Data::new(data_rq.sequence_number, data_rq.topic_id, data_rq.data.clone());
                                 let data = data.as_bytes();
                                 let client_addr = {
                                     // use closure to reduce the lock lifetime
