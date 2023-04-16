@@ -9,9 +9,10 @@ use tokio::sync::{oneshot};
 use crate::client_lib::ClientActions::Get;
 use crate::CONFIG;
 use crate::config::LogLevel::Warning;
+use crate::datagram::ObjectIdentifierType;
 use crate::server_lib::log;
 use crate::server_lib::LogSource::ClientManager;
-use crate::types::{ClientSender, PingId, Responder, ServerSocket, TopicId};
+use crate::types::{ClientSender, ObjectId, PingId, Responder, ServerSocket, TopicId};
 
 
 /**
@@ -30,10 +31,10 @@ pub enum ClientActions {
         buffer: [u8; 1024],
     },
     AddSubscribedTopic{
-        topic_id: TopicId
+        topic_ids: Vec<TopicId>
     },
     RemoveSubscribedTopic{
-        topic_id: TopicId
+        topic_ids: Vec<TopicId>
     },
     StartManagers{
         server_sender: ServerSocket
@@ -54,6 +55,11 @@ pub enum ClientActions {
         client_sender: ClientSender
     },
     HandleDisconnect{
+    },
+    HandleObjectRequest{
+        buffer: [u8; 1024],
+        server_socket: ServerSocket,
+        client_sender: ClientSender,
     }
 }
 
@@ -111,3 +117,71 @@ pub async fn client_has_sent_life_sign(
     // return true if the last request is sooner than the current time minus the heartbeat_period
     return last_client_request >= should_have_give_life_sign;
 }
+
+/**
+ * This method return the u8 image of the
+ * given bitfields. The bitfield must be in LE endian
+ *
+ * @param bitfields: Vec<u8>
+ *
+ * @return u8
+ */
+pub fn vec_to_u8(bitfield: Vec<u8>) -> u8{
+    (bitfield[0] << 7) | (bitfield[1] << 6) | (bitfield[2] << 5) | (bitfield[3] << 4) | (bitfield[4] << 3) | (bitfield[5] << 2) | (bitfield[6] << 1) | (bitfield[7] << 0)
+}
+
+/**
+ * This method return the type of the
+ * object id according to the two MSB
+ *
+ * @param id: ObjectId
+ *
+ * @return ObjectIdentifierType
+ */
+pub fn get_object_id_type(id: ObjectId) -> ObjectIdentifierType {
+    // Use bitwise operator to get two MSB ->|XX______|
+    let msb = (id >> 62) & 0b11;
+    match msb {
+        0b00 => {
+            ObjectIdentifierType::USER_GENERATED
+        }
+        0b01 => {
+            ObjectIdentifierType::BROKER_GENERATED
+        }
+        0b10 => {
+            ObjectIdentifierType::TEMPORARY
+        }
+        _ => {
+            ObjectIdentifierType::UNKNOWN
+        }
+    }
+}
+
+/**
+ * This method generate a new object id and set
+ * the two MSB according to the type needed.
+ * /!\ Unknown type is not allow and will return 0.
+ *
+ * @param id_type: ObjectIdentifierType
+ *
+ * @return ObjectId or 0
+ */
+pub fn generate_object_id(id_type: ObjectIdentifierType) -> ObjectId {
+    // 1 - Get the current time
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Failed to get system time").as_nanos() as u64;
+    let u64_with_msb_00 = now & 0x3FFFFFFFFFFFFFFF; // the mask allow to set two MSB to 00 to rewrite them after
+    // 2 - set é MSB according to the type
+    match id_type {
+        ObjectIdentifierType::USER_GENERATED => {
+            u64_with_msb_00 | 0x0000000000000000
+        }
+        ObjectIdentifierType::BROKER_GENERATED => {
+            u64_with_msb_00 | 0x0100000000000000
+        }
+        ObjectIdentifierType::TEMPORARY => {
+            u64_with_msb_00 | 0x1000000000000000
+        }
+        _ => 0
+    }
+}
+

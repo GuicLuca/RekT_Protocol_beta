@@ -21,6 +21,7 @@ pub enum LogSource {
     HeartbeatChecker,
     TopicHandler,
     ClientManager,
+    ObjectHandler,
     Other,
 }
 
@@ -70,6 +71,10 @@ pub fn log(
         ClientManager => {
             if !CONFIG.debug_topic_handler { return; }
             println!("[Server - ClientManger] {}: {}", display_loglevel(log_level), message);
+        }
+        ObjectHandler => {
+            if !CONFIG.debug_object_handler { return; }
+            println!("[Server - ObjectHandler] {}: {}", display_loglevel(log_level), message);
         }
     }
 }

@@ -27,7 +27,7 @@ pub type ServerSocket = Arc<UdpSocket>;
 pub type ClientsHashMap<T> = Arc<RwLock<HashMap<ClientId, T>>>;
 pub type TopicsHashMap<T> = Arc<RwLock<HashMap<TopicId, T>>>;
 pub type PingsHashMap = Arc<Mutex<HashMap<PingId, u128>>>;
-pub type ObjectHashMap = Arc<RwLock<HashMap<ObjectId, HashSet<TopicId>>>>;
+pub type ObjectHashMap<T> = Arc<RwLock<HashMap<ObjectId, T>>>;
 
 
 // ===================

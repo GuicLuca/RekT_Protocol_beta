@@ -1,3 +1,13 @@
+// This document contain the main task of the broker. The task datagram_handler
+// must never be blocked by any method ! The whole project use tokio and work
+// asynchronously to allow a maximum bandwidth computing. The goal of the broker is
+// to handle 100Gb/s.
+// For each features the memory management and the cpu usage should be in the middle of the reflexion.
+//
+// @version 1.0.0 can handle 5Gb/s with 5Mo RAM
+// @author : GuicLuca (lucasguichard127@gmail.com)
+// date : 22/03/2023
+
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -11,13 +21,13 @@ use tokio::time::sleep;
 
 use crate::client::Client;
 use crate::client_lib::{ClientActions, now_ms};
-use crate::client_lib::ClientActions::{HandleData, HandleDisconnect, HandlePong, HandleTopicRequest, StartManagers, UpdateClientLastRequest};
+use crate::client_lib::ClientActions::{HandleData, HandleDisconnect, HandleObjectRequest, HandlePong, HandleTopicRequest, StartManagers, UpdateClientLastRequest};
 use crate::config::Config;
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::*;
 use crate::server_lib::LogSource::*;
-use crate::types::{ClientId, ClientSender, ClientsHashMap, ObjectHashMap, PingsHashMap, ServerSocket, TopicsHashMap};
+use crate::types::{ClientId, ClientSender, ClientsHashMap, ObjectHashMap, PingsHashMap, ServerSocket, TopicsHashMap, TopicId};
 
 mod config;
 mod datagram;
@@ -44,7 +54,8 @@ lazy_static! {
     static ref TOPICS_SUBSCRIBERS_REF: TopicsHashMap<HashSet<ClientId>> = Arc::new(RwLock::new(HashMap::default())); // <Topic ID, [Clients ID]>
 
     // List of Objects (group of topics)
-    static ref OBJECTS_TOPICS_REF: ObjectHashMap = Arc::new(RwLock::new(HashMap::default())); // <ObjectId, [TopicId]>
+    static ref OBJECTS_TOPICS_REF: ObjectHashMap<HashSet<TopicId>> = Arc::new(RwLock::new(HashMap::default())); // <ObjectId, [TopicId]>
+    static ref OBJECT_SUBSCRIBERS_REF: ObjectHashMap<HashSet<ClientId>>  = Arc::new(RwLock::new(HashMap::default())); // <ObjectId, [ClientId]>
 }
 
 #[tokio::main]
@@ -284,14 +295,27 @@ async fn datagrams_handler(
                     MessageType::HEARTBEAT => {
                         // 4.5 - A user is trying to sent an heartbeat
                         log(Info, DatagramsHandler, format!("{} is trying to sent an heartbeat", client_id));
-                        // check if client is still connected
-                        /*if clients.read().await.contains_key(&client_id) {
-                            // TODO: voir si c'est ok ou pas de pas check si la dernier rq est un HB ou pas.
-                        }*/
                     }
                     MessageType::OBJECT_REQUEST => {
                         // 4.6 - A user is trying to request an object
                         log(Info, DatagramsHandler, format!("{} is trying to request an object", client_id));
+                        let client_sender = {
+                            let map = CLIENTS_SENDERS_REF.read().await;
+                            map.get(&client_id).unwrap().clone()
+                        };
+                        let cmd = HandleObjectRequest {
+                            server_socket: receiver.clone(),
+                            buffer: buf,
+                            client_sender: client_sender.clone(),
+                        };
+                        tokio::spawn(async move {
+                            match client_sender.send(cmd).await {
+                                Ok(_) => {}
+                                Err(_) => {
+                                    return;
+                                }
+                            };
+                        });
                     }
                     MessageType::TOPIC_REQUEST => {
                         // 4.7 - A user is trying to request a new topic

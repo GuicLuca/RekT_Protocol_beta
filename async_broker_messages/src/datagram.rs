@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types, unused)]
 
+use std::collections::HashSet;
 use std::mem::size_of;
 use std::str::from_utf8;
 use crate::config::LogLevel;
@@ -388,7 +389,7 @@ impl From<u8> for TopicsResponse {
  * 0--2------------64
  * |XX| IDENTIFIER |
  */
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum ObjectIdentifierType {
     USER_GENERATED,
@@ -439,12 +440,14 @@ impl From<u8> for ObjectIdentifierType {
  * Object Flags are all possible action in a
  * OBJECT_REQUEST.
  */
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(u8)]
 pub enum ObjectFlags {
     CREATE,
     UPDATE,
     DELETE,
+    SUBSCRIBE,
+    UNSUBSCRIBE,
     UNKNOWN,
 }
 
@@ -462,6 +465,8 @@ impl From<ObjectFlags> for u8 {
             ObjectFlags::CREATE => 0x01,
             ObjectFlags::UPDATE => 0x02,
             ObjectFlags::DELETE => 0x04,
+            ObjectFlags::SUBSCRIBE => 0x08,
+            ObjectFlags::UNSUBSCRIBE => 0x10,
             ObjectFlags::UNKNOWN => 0xAA,
         }
     }
@@ -480,6 +485,8 @@ impl From<u8> for ObjectFlags {
             0x01 => ObjectFlags::CREATE,
             0x02 => ObjectFlags::UPDATE,
             0x04 => ObjectFlags::DELETE,
+            0x08 => ObjectFlags::SUBSCRIBE,
+            0x10 => ObjectFlags::UNSUBSCRIBE,
             _ => ObjectFlags::UNKNOWN,
         }
     }
@@ -936,10 +943,10 @@ pub struct RQ_ObjectRequest{
     pub size: Size,
     pub flags: ObjectFlags,
     pub object_id: ObjectId,
-    pub topics: Vec<u64>
+    pub topics: HashSet<u64>
 }
 impl RQ_ObjectRequest {
-    pub fn new(flags: ObjectFlags, object_id: u64, topics: Vec<u64>)-> RQ_ObjectRequest {
+    pub fn new(flags: ObjectFlags, object_id: u64, topics: HashSet<u64>)-> RQ_ObjectRequest {
         let size: u16 = (1 + 8 + topics.len() * size_of::<u64>()) as u16; // 1 = flags, 8 = object_id, x = size_of(topics)
         RQ_ObjectRequest{
             message_type:MessageType::OBJECT_REQUEST,
@@ -971,7 +978,7 @@ impl RQ_ObjectRequest {
 impl From<&[u8]> for RQ_ObjectRequest {
     fn from(buffer: &[u8]) -> Self {
         let size = u16::from_le_bytes(buffer[1..].split_at(size_of::<u16>()).0.try_into().unwrap());
-        let topics: Vec<u64> = get_bytes_from_slice(buffer, 12, (size as usize - 9))
+        let topics: HashSet<u64> = get_bytes_from_slice(buffer, 12, (size as usize - 9))
             // Convert the bytes vector to a vector of topics id by grouping u8 into u64
             .chunks_exact(8)
             .map(|chunk| {
@@ -1032,7 +1039,7 @@ impl From<&[u8]> for RQ_ObjectRequestCreate_ACK {
 //===== Sent to acknowledge a OBJECT_REQUEST delete or update
 pub struct RQ_ObjectRequestDefault_ACK{
     pub message_type: MessageType,
-    pub flags: u8, // Bit field SXXX XDMC (S: Success/fail, X: Unused, D: delete, M : modify, C: Create)
+    pub flags: u8, // Bit field SXXA UDMC (S: Success/fail, X: Unused, D: delete, M : modify, C: Create, A : subscribe, U, Unsubscribe)
     pub object_id: u64,
 }
 impl RQ_ObjectRequestDefault_ACK {
@@ -1071,7 +1078,7 @@ impl From<&[u8]> for RQ_ObjectRequestDefault_ACK {
 // ===== Sent in case of error for all action (Create update delete)
 pub struct RQ_ObjectRequest_NACK{
     pub message_type: MessageType,
-    pub flags: u8, // Bit field SXXX XDMC (S: Success/fail, X: Unused, D: delete, M : modify, C: Create)
+    pub flags: u8, // Bit field SXXA UDMC (S: Success/fail, X: Unused, D: delete, M : modify, C: Create, A : subscribe, U, Unsubscribe)
     pub object_id: u64,
     pub reason_size: Size,
     pub reason: Vec<u8>

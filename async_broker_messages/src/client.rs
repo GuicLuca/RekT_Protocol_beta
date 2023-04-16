@@ -13,14 +13,14 @@ use std::time::Duration;
 use tokio::sync::mpsc::{Receiver};
 use tokio::time::sleep;
 
-use crate::client_lib::{client_has_sent_life_sign, ClientActions, now_ms};
+use crate::client_lib::{client_has_sent_life_sign, ClientActions, generate_object_id, get_object_id_type, now_ms, vec_to_u8};
 use crate::client_lib::ClientActions::*;
-use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CLIENTS_STRUCTS_REF, CONFIG, ISRUNNING, PINGS_REF, TOPICS_SUBSCRIBERS_REF};
+use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CLIENTS_STRUCTS_REF, CONFIG, ISRUNNING, OBJECT_SUBSCRIBERS_REF, OBJECTS_TOPICS_REF, PINGS_REF, TOPICS_SUBSCRIBERS_REF};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
 use crate::server_lib::*;
 use crate::server_lib::LogSource::*;
-use crate::types::{ClientId, ServerSocket};
+use crate::types::{ClientId, ObjectId, ServerSocket};
 
 #[derive(Debug)]
 pub struct Client {
@@ -303,7 +303,7 @@ impl Client {
                                     // this is false when the client is already sub
                                     if is_subscribed {
                                         // 2 - inform the client that he's subscribed
-                                        let cmd = AddSubscribedTopic { topic_id: topic_rq.topic_id };
+                                        let cmd = AddSubscribedTopic { topic_ids: vec![topic_rq.topic_id] };
                                         let cmd_sender = client_sender.clone();
                                         tokio::spawn(async move {
                                             match cmd_sender.send(cmd).await {
@@ -327,7 +327,7 @@ impl Client {
                                                 log(Info, TopicHandler, format!("{} has successfully sub the topic {}", client_id, topic_rq.topic_id));
                                             }
                                             Err(error) => {
-                                                log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error));
+                                                log(Info, TopicHandler, format!("Failed to send ACK to {}.\nError: {}", client_id, error));
                                             }
                                         }
                                     } else {
@@ -344,7 +344,7 @@ impl Client {
                                                 log(Info, TopicHandler, format!("{} has failed sub the topic {} (ALREADY SUB)", client_id, topic_rq.topic_id));
                                             }
                                             Err(error) => {
-                                                log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error));
+                                                log(Info, TopicHandler, format!("Failed to send ACK to {}.\nError: {}", client_id, error));
                                             }
                                         }
                                     }
@@ -357,7 +357,7 @@ impl Client {
                                     }
 
                                     // remove it from the personal client set
-                                    let cmd = RemoveSubscribedTopic { topic_id: topic_rq.topic_id };
+                                    let cmd = RemoveSubscribedTopic { topic_ids: vec![topic_rq.topic_id] };
                                     let cmd_sender = client_sender.clone();
                                     tokio::spawn(async move {
                                         match cmd_sender.send(cmd).await {
@@ -380,7 +380,7 @@ impl Client {
                                             log(Info, TopicHandler, format!("{} has successfully unsub the topic {}", client_id, topic_rq.topic_id));
                                         }
                                         Err(error) => {
-                                            log(Info, HeartbeatChecker, format!("Failed to send ACK to {}.\nError: {}", client_id, error));
+                                            log(Info, TopicHandler, format!("Failed to send ACK to {}.\nError: {}", client_id, error));
                                         }
                                     }
                                 }
@@ -391,14 +391,263 @@ impl Client {
 
                     // The two following task update the subscribed topics of this client
                     AddSubscribedTopic {
-                        topic_id
+                        topic_ids
                     } => {
-                        self.topics.write().unwrap().insert(topic_id); // Warning: code bloquant
+                        let mut topics_guard = self.topics.write().unwrap();
+                        topic_ids.iter().for_each(move |id|{
+                            topics_guard.insert(*id);
+                        });
                     }
                     RemoveSubscribedTopic {
-                        topic_id
+                        topic_ids
                     } => {
-                        self.topics.write().unwrap().remove(&topic_id); // Warning: code bloquant
+                        let mut topics_guard = self.topics.write().unwrap();
+                        topic_ids.iter().for_each(move |id|{
+                            topics_guard.remove(id);
+                        });
+                    }
+
+                    // The following command handle ObjectRequest
+                    HandleObjectRequest {
+                        buffer,
+                        server_socket,
+                        client_sender,
+                    } => {
+                        let client_id = self.id;
+                        let client_addr = self.socket;
+
+                        tokio::spawn(async move {
+                            let request = RQ_ObjectRequest::from(buffer.as_ref());
+                            let new_object_id: ObjectId;
+                            // Check the flag to know how to handle the request
+                            match request.flags {
+                                // Create the new object and sub the client to it
+                                ObjectFlags::CREATE => {
+                                    // Check that the id is not a broker generated objectID
+                                    match get_object_id_type(request.object_id) {
+                                        ObjectIdentifierType::USER_GENERATED => {
+                                            let temp_id = (request.object_id & 0x3FFFFFFFFFFFFFFF) | 0x0100000000000000; // mark the old_id as a broker one
+                                            // ... Then check if the broker already have it.
+                                            let contains_key = {
+                                                OBJECTS_TOPICS_REF.read().await.contains_key(&temp_id)
+                                            };
+                                            if contains_key {
+                                                // Object id invalid, cancel the creation
+                                                let flag: Vec<u8> = vec![0,0,0,0,0,0,0,1]; // was a create request
+
+                                                match send_datagram(
+                                                    server_socket.clone(),
+                                                    &RQ_ObjectRequest_NACK::new(vec_to_u8(flag), request.object_id, "Invalid Object identifier sent. Already exist").as_bytes(),
+                                                    client_addr,
+                                                    client_sender,
+                                                ).await {
+                                                    Ok(_) => {
+                                                        log(Info, ObjectHandler, format!("{} has sent an invalid object identifier (already exist) in a RQ_ObjectRequestCreate. id : {:b}", client_id, request.object_id));
+                                                    }
+                                                    Err(error) => {
+                                                        log(Info, ObjectHandler, format!("Failed to send NACK (invalid object identifier, already exist) to {} for a RQ_ObjectRequestCreate.\nError: {}", client_id, error));
+                                                    }
+                                                }
+                                                return; // Do not execute th following code
+                                            }
+                                            // Id is valid : enforce it as a new broker generated id.
+                                            new_object_id = temp_id;
+                                        }
+                                        ObjectIdentifierType::TEMPORARY => {
+                                            // Generate a new one by with the broker mark
+                                            new_object_id = generate_object_id(ObjectIdentifierType::BROKER_GENERATED);
+                                        }
+                                        // Invalid identifier type
+                                        ObjectIdentifierType::UNKNOWN | ObjectIdentifierType::BROKER_GENERATED => {
+                                            let flag: Vec<u8> = vec![0,0,0,0,0,0,0,1]; // was a create request
+
+                                            match send_datagram(
+                                                server_socket.clone(),
+                                                &RQ_ObjectRequest_NACK::new(vec_to_u8(flag), request.object_id, "Invalid Object identifier sent. Bad format.").as_bytes(),
+                                                client_addr,
+                                                client_sender,
+                                            ).await {
+                                                Ok(_) => {
+                                                    log(Info, ObjectHandler, format!("{} has sent an invalid object identifier (bad format) in a RQ_ObjectRequestCreate. id : {:b}", client_id, request.object_id));
+                                                }
+                                                Err(error) => {
+                                                    log(Info, ObjectHandler, format!("Failed to send NACK (invalid object identifier, bad format) to {} in a RQ_ObjectRequestCreate.\nError: {}", client_id, error));
+                                                }
+                                            }
+                                            return; // Do not execute th following code
+                                        }
+                                    }// End match object_id type
+                                    // The object id is valid and we can register the new object before answer the request.
+                                    // Create the object :
+                                    {
+                                        OBJECTS_TOPICS_REF.write().await.insert(new_object_id, request.topics.clone());
+                                    }
+
+                                    // Register every topic : (create new one if they are unknown)
+                                    // It add the client_id as subscriber as well
+                                    {
+                                        let mut topics_list_writ = TOPICS_SUBSCRIBERS_REF.write().await;
+                                        request.topics.iter().for_each(move |topic_id|{
+                                           topics_list_writ.entry(*topic_id)
+                                               .and_modify(|subscribers|{
+                                               subscribers.insert(client_id);
+                                               })
+                                               .or_insert(HashSet::from([client_id]));
+                                        });
+                                    }
+
+                                    // Add the first object subscriber
+                                    {
+                                        let mut object_sub_write = OBJECT_SUBSCRIBERS_REF.write().await;
+                                        let subscribers_set = object_sub_write.entry(new_object_id)
+                                            .or_insert({
+                                                // Create a new hashset and insert the client
+                                                let new_hash = HashSet::new();
+                                                new_hash
+                                            });
+                                        subscribers_set.insert(client_id);
+                                    }
+
+                                    // Add topics to the object creator (client)
+                                    let cmd = AddSubscribedTopic {
+                                        topic_ids: request.topics.into_iter().collect() // transform the hashset into Vec
+                                    };
+                                    let cmd_sender = client_sender.clone();
+                                    tokio::spawn(async move {
+                                        match cmd_sender.send(cmd).await {
+                                            Ok(_) => {}
+                                            Err(_) => {
+                                                return;
+                                            }
+                                        };
+                                    });
+
+                                    // Send an ack request
+                                    let flag: Vec<u8> = vec![1,0,0,0,0,0,0,1]; // was a valid create request
+
+                                    match send_datagram(
+                                        server_socket.clone(),
+                                        &RQ_ObjectRequestCreate_ACK::new(vec_to_u8(flag), request.object_id, new_object_id).as_bytes(),
+                                        client_addr,
+                                        client_sender,
+                                    ).await {
+                                        Ok(_) => {
+                                            log(Info, ObjectHandler, format!("{} has successfully subscribe to the object {} from a RQ_ObjectRequestCreate", client_id, new_object_id));
+                                        }
+                                        Err(error) => {
+                                            log(Info, ObjectHandler, format!("Failed to send RQ_ObjectRequestCreate_ACK to {}.\nError: {}", client_id, error));
+                                        }
+                                    }
+                                } // End create
+                                // Update the object and update Client subscriptions
+                                ObjectFlags::UPDATE => {}
+                                // Delete the object and Update Client subscriptions
+                                ObjectFlags::DELETE => {
+                                    // Check if id type is valid
+                                    if get_object_id_type(request.object_id) != ObjectIdentifierType::BROKER_GENERATED {
+                                        let flag: Vec<u8> = vec![0,0,0,0,0,0,0,1]; // was a create request
+
+                                        match send_datagram(
+                                            server_socket.clone(),
+                                            &RQ_ObjectRequest_NACK::new(vec_to_u8(flag), request.object_id, "Invalid Object identifier sent in a RQ_ObjectRequestDelete. Bad format.").as_bytes(),
+                                            client_addr,
+                                            client_sender.clone(),
+                                        ).await {
+                                            Ok(_) => {
+                                                log(Info, ObjectHandler, format!("{} has sent an invalid object identifier (bad format) in a RQ_ObjectRequestDelete. id : {:b}", client_id, request.object_id));
+                                            }
+                                            Err(error) => {
+                                                log(Info, ObjectHandler, format!("Failed to send NACK (invalid object identifier in a RQ_ObjectRequestDelete, bad format) to {}.\nError: {}", client_id, error));
+                                            }
+                                        }
+                                    }
+                                    // Object id is correct
+                                    // Get subscribed client
+                                    let clients_sub = {
+                                        OBJECT_SUBSCRIBERS_REF.read().await.get(&request.object_id).unwrap().clone()
+                                    };
+                                    // unsubscribe every client sub to this object
+                                    for subscriber_id in clients_sub {
+                                        let client_sender = {
+                                            CLIENTS_SENDERS_REF.read().await.get(&subscriber_id).unwrap().clone()
+                                        };
+
+                                        let cmd = RemoveSubscribedTopic {
+                                            topic_ids: request.topics.clone().into_iter().collect() // transform the hashset into Vec
+                                        };
+                                        let cmd_sender = client_sender.clone();
+                                        tokio::spawn(async move {
+                                            match cmd_sender.send(cmd).await {
+                                                Ok(_) => {}
+                                                Err(_) => {
+                                                    return;
+                                                }
+                                            };
+                                        });
+
+                                        let client_addr = {
+                                            CLIENTS_ADDRESSES_REF.read().await.get(&subscriber_id).unwrap().clone()
+                                        };
+
+                                        let mut flag: Vec<u8> = Vec::with_capacity(8);
+                                        if client_id == subscriber_id {
+                                            flag.extend([1,0,0,0,0,1,0,0]); // was a valid delete request (he is the source of the deletion)
+                                        }else{
+                                            flag.extend([1,0,0,0,1,0,0,0]); // was a valid unsubscribe request (they are not the source of the delete)
+                                        }
+
+                                        match send_datagram(
+                                            server_socket.clone(),
+                                            &RQ_ObjectRequestDefault_ACK::new(vec_to_u8(flag), request.object_id).as_bytes(),
+                                            client_addr,
+                                            client_sender
+                                        ).await {
+                                            Ok(_) => {
+                                                log(Info, ObjectHandler, format!("Unsubscribe notify sent to {} for the object_id : {:b}", subscriber_id, request.object_id));
+                                            }
+                                            Err(error) => {
+                                                log(Info, ObjectHandler, format!("Failed to send Unsubscribe notify to {}.\nError: {}", subscriber_id, error));
+                                            }
+                                        }
+                                    } // end for
+
+                                    // Delete topics and then the object itself
+                                    {
+                                        let keys_to_remove = OBJECTS_TOPICS_REF.read().await.get(&request.object_id).unwrap().clone();
+                                        let mut topics_sub_ref =TOPICS_SUBSCRIBERS_REF.write().await;
+                                        keys_to_remove.iter().for_each(move |id|{
+                                            topics_sub_ref.remove(id);
+                                        });
+                                    }
+                                    {
+                                        OBJECTS_TOPICS_REF.write().await.remove(&request.object_id);
+                                    }
+
+                                }
+                                // Subscribe the client to all topics of this object
+                                ObjectFlags::SUBSCRIBE => {}
+                                // Unsubscribe the client to all topics of this object
+                                ObjectFlags::UNSUBSCRIBE => {}
+                                // Respond with an Error
+                                ObjectFlags::UNKNOWN => {
+                                    let flag: Vec<u8> = vec![0,0,0,0,0,0,0,0]; // was an invalid unknown request
+
+                                    match send_datagram(
+                                        server_socket.clone(),
+                                        &RQ_ObjectRequest_NACK::new(vec_to_u8(flag), request.object_id, "Invalid flag sent").as_bytes(),
+                                        client_addr,
+                                        client_sender,
+                                    ).await {
+                                        Ok(_) => {
+                                            log(Info, ObjectHandler, format!("{} has sent invalid flags for an object request. flags: {}", client_id, u8::from(request.flags)));
+                                        }
+                                        Err(error) => {
+                                            log(Info, ObjectHandler, format!("Failed to send NACK (invalid flags) to {}.\nError: {}", client_id, error));
+                                        }
+                                    }
+                                }
+                            }
+                        });
                     }
                 } // end match
             }
@@ -419,7 +668,8 @@ pub async fn heartbeat_manager(
     id: ClientId,
     socket: SocketAddr,
     server_sender: ServerSocket,
-) {
+)
+{
     log(Info, HeartbeatChecker, format!("HeartbeatChecker spawned for {}", id));
     // 1 - Init local variables
     let mut missed_heartbeats: u8 = 0; // used to count how many HB are missing
