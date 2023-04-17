@@ -2,17 +2,18 @@
 // @author : GuicLuca (lucasguichard127@gmail.com)
 // date : 22/03/2023
 
+use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{oneshot};
 
-use crate::client_lib::ClientActions::Get;
-use crate::CONFIG;
+use crate::client_lib::ClientActions::{AddSubscribedTopic, Get};
+use crate::{CONFIG, OBJECT_SUBSCRIBERS_REF, TOPICS_SUBSCRIBERS_REF};
 use crate::config::LogLevel::Warning;
 use crate::datagram::ObjectIdentifierType;
 use crate::server_lib::log;
 use crate::server_lib::LogSource::ClientManager;
-use crate::types::{ClientSender, ObjectId, PingId, Responder, ServerSocket, TopicId};
+use crate::types::{ClientId, ClientSender, ObjectId, PingId, Responder, ServerSocket, TopicId};
 
 
 /**
@@ -185,3 +186,51 @@ pub fn generate_object_id(id_type: ObjectIdentifierType) -> ObjectId {
     }
 }
 
+
+pub async fn subscribe_client_to_object(
+    object_id: ObjectId,
+    topics : HashSet<TopicId>,
+    client_id: ClientId,
+    client_sender: ClientSender,
+)
+{
+    // 1 - add the client as subscriber for every object topics
+    {
+        let mut topics_list_writ = TOPICS_SUBSCRIBERS_REF.write().await;
+        topics.iter().for_each(move |topic_id|{
+            topics_list_writ.entry(*topic_id)
+                .and_modify(|subscribers|{
+                    subscribers.insert(client_id);
+                })
+                .or_insert(HashSet::from([client_id]));
+        });
+    }
+
+    // 2 - add topics to the client
+    let cmd = AddSubscribedTopic {
+        topic_ids: topics.into_iter().collect() // transform the hashset into Vec
+    };
+    let cmd_sender = client_sender;
+    tokio::spawn(async move {
+        match cmd_sender.send(cmd).await {
+            Ok(_) => {}
+            Err(_) => {
+                return;
+            }
+        };
+    });
+
+    // 3 - Add the client as object subscriber
+    {
+        let mut object_sub_write = OBJECT_SUBSCRIBERS_REF.write().await;
+        let subscribers_set = object_sub_write.entry(object_id)
+            .or_insert({
+                // Create a new hashset and insert the client
+                let new_hash = HashSet::new();
+                new_hash
+            });
+        subscribers_set.insert(client_id);
+    }
+}
+
+//TODO faire la même method qu'au dessus mais pour unsub un object

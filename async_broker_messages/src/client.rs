@@ -13,7 +13,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::{Receiver};
 use tokio::time::sleep;
 
-use crate::client_lib::{client_has_sent_life_sign, ClientActions, generate_object_id, get_object_id_type, now_ms, vec_to_u8};
+use crate::client_lib::{client_has_sent_life_sign, ClientActions, generate_object_id, get_object_id_type, now_ms, subscribe_client_to_object, vec_to_u8};
 use crate::client_lib::ClientActions::*;
 use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CLIENTS_STRUCTS_REF, CONFIG, ISRUNNING, OBJECT_SUBSCRIBERS_REF, OBJECTS_TOPICS_REF, PINGS_REF, TOPICS_SUBSCRIBERS_REF};
 use crate::config::LogLevel::*;
@@ -483,44 +483,13 @@ impl Client {
                                         OBJECTS_TOPICS_REF.write().await.insert(new_object_id, request.topics.clone());
                                     }
 
-                                    // Register every topic : (create new one if they are unknown)
-                                    // It add the client_id as subscriber as well
-                                    {
-                                        let mut topics_list_writ = TOPICS_SUBSCRIBERS_REF.write().await;
-                                        request.topics.iter().for_each(move |topic_id|{
-                                           topics_list_writ.entry(*topic_id)
-                                               .and_modify(|subscribers|{
-                                               subscribers.insert(client_id);
-                                               })
-                                               .or_insert(HashSet::from([client_id]));
-                                        });
-                                    }
-
-                                    // Add the first object subscriber
-                                    {
-                                        let mut object_sub_write = OBJECT_SUBSCRIBERS_REF.write().await;
-                                        let subscribers_set = object_sub_write.entry(new_object_id)
-                                            .or_insert({
-                                                // Create a new hashset and insert the client
-                                                let new_hash = HashSet::new();
-                                                new_hash
-                                            });
-                                        subscribers_set.insert(client_id);
-                                    }
-
-                                    // Add topics to the object creator (client)
-                                    let cmd = AddSubscribedTopic {
-                                        topic_ids: request.topics.into_iter().collect() // transform the hashset into Vec
-                                    };
-                                    let cmd_sender = client_sender.clone();
-                                    tokio::spawn(async move {
-                                        match cmd_sender.send(cmd).await {
-                                            Ok(_) => {}
-                                            Err(_) => {
-                                                return;
-                                            }
-                                        };
-                                    });
+                                    // subscribe the creator to this object
+                                    subscribe_client_to_object(
+                                        new_object_id,
+                                        request.topics,
+                                        client_id,
+                                        client_sender.clone()
+                                    ).await;
 
                                     // Send an ack request
                                     let flag: Vec<u8> = vec![1,0,0,0,0,0,0,1]; // was a valid create request

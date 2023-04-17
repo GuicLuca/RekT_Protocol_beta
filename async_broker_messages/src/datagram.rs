@@ -3,8 +3,9 @@
 use std::collections::HashSet;
 use std::mem::size_of;
 use std::str::from_utf8;
+use serde::de::Unexpected::Bool;
 use crate::config::LogLevel;
-use crate::types::{ObjectId, PingId, Size};
+use crate::types::{ClientId, ObjectId, PingId, Size};
 
 /** ==================================
 *
@@ -35,6 +36,8 @@ pub enum MessageType {
     OBJECT_REQUEST_ACK,
     OBJECT_REQUEST_NACK,
     DATA,
+    SERVER_STATUS,
+    SERVER_STATUS_ACK,
     UNKNOWN,
 }
 
@@ -62,6 +65,8 @@ pub fn display_message_type<'a>(message: MessageType) -> &'a str {
         MessageType::OBJECT_REQUEST_ACK => "Object_Request_Ack",
         MessageType::OBJECT_REQUEST_NACK => "Object_Request_Nack",
         MessageType::DATA => "Data",
+        MessageType::SERVER_STATUS => "Server_Status",
+        MessageType::SERVER_STATUS_ACK => "Server_Status_Ack",
         MessageType::UNKNOWN => "Unknown",
     }
 }
@@ -91,6 +96,8 @@ impl From<u8> for MessageType {
             0x48 => MessageType::OBJECT_REQUEST_ACK,
             0x49 => MessageType::OBJECT_REQUEST_NACK,
             0x05 => MessageType::DATA,
+            0x00 => MessageType::SERVER_STATUS,
+            0x40 => MessageType::SERVER_STATUS_ACK,
             _ => MessageType::UNKNOWN
         }
     }
@@ -121,7 +128,9 @@ impl From<MessageType> for u8 {
             MessageType::OBJECT_REQUEST_ACK => 0x48,
             MessageType::OBJECT_REQUEST_NACK => 0x49,
             MessageType::DATA => 0x05,
-            MessageType::UNKNOWN => 0xAA
+            MessageType::SERVER_STATUS => 0x00,
+            MessageType::SERVER_STATUS_ACK => 0x40,
+            MessageType::UNKNOWN => 0xAA,
         }
     }
 }
@@ -524,6 +533,64 @@ pub fn get_bytes_from_slice(
 *
 ** ================================*/
 
+//===== Sent to know the server status
+pub struct RQ_ServerStatus {
+    pub message_type: MessageType,
+}
+impl RQ_ServerStatus {
+    pub const fn new() -> RQ_ServerStatus {
+        RQ_ServerStatus { message_type: MessageType::SERVER_STATUS }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        return [u8::from(self.message_type)].into();
+    }
+}
+
+impl From<&[u8]> for RQ_ServerStatus {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_ServerStatus {
+            message_type: MessageType::from(*buffer.first().unwrap()),
+        }
+    }
+}
+//===== Sent to answer a ServerStatus request
+pub struct RQ_ServerStatus_ACK {
+    pub message_type: MessageType,
+    pub status: bool,
+    pub connected_client: ClientId, // Amount of connected client. It use the same type as client_id to ensure sufficient capacity
+}
+impl RQ_ServerStatus_ACK {
+    pub const fn new(status: bool, nb_client: ClientId) -> RQ_ServerStatus_ACK {
+        RQ_ServerStatus_ACK {
+            message_type: MessageType::SERVER_STATUS_ACK,
+            status,
+            connected_client: nb_client
+        }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8>
+    {
+        let mut bytes: Vec<u8> = Vec::with_capacity(10);
+        bytes.push(u8::from(self.message_type));
+        bytes.push(u8::from(self.status));
+        bytes.extend(self.connected_client.to_le_bytes());
+
+        return bytes;
+    }
+}
+
+impl From<&[u8]> for RQ_ServerStatus_ACK {
+    fn from(buffer: &[u8]) -> Self {
+        RQ_ServerStatus_ACK {
+            message_type: MessageType::from(*buffer.first().unwrap()),
+            status: buffer[1] != 0,
+            connected_client: u64::from_le_bytes(buffer[2..].split_at(size_of::<u64>()).0.try_into().unwrap()),
+        }
+    }
+}
+
 //===== Sent to connect to a peer to the server
 pub struct RQ_Connect {
     pub message_type: MessageType,
@@ -540,9 +607,9 @@ impl RQ_Connect {
 }
 
 impl From<&[u8]> for RQ_Connect {
-    fn from(value: &[u8]) -> Self {
+    fn from(buffer: &[u8]) -> Self {
         RQ_Connect {
-            message_type: MessageType::from(*value.first().unwrap()),
+            message_type: MessageType::from(*buffer.first().unwrap()),
         }
     }
 }

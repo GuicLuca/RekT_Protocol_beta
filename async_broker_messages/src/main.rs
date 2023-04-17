@@ -38,6 +38,12 @@ mod types;
 
 use lazy_static::lazy_static;
 
+// TODO : faire la RFC des objets
+// Todo : mettre à jour la RFC des datagrams et ajouter les nouveaux
+// TODO : mettre à jour la section data de la RFC
+// TODO : mettre à jour la doc des nouvelles fonctions
+// Todo : verrifier que l'ancienne doc est toujours good
+
 lazy_static! {
     static ref ISRUNNING: Arc<RwLock<bool>> = Arc::from(RwLock::from(false)); // Flag showing if the server is running or not
     static ref CONFIG: Config = Config::new(); // Unique reference to the config object
@@ -366,12 +372,42 @@ async fn datagrams_handler(
                             };
                         });
                     }
-                    MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING | MessageType::TOPIC_REQUEST_NACK | MessageType::OBJECT_REQUEST_NACK => {
+                    MessageType::SERVER_STATUS_ACK | MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING | MessageType::TOPIC_REQUEST_NACK | MessageType::OBJECT_REQUEST_NACK => {
                         // 4.9 - invalid datagrams for the server
                         log(Warning, DatagramsHandler, format!("{} has sent an invalid datagram.", client_id));
                     }
                     MessageType::UNKNOWN => {
                         log(Warning, DatagramsHandler, format!("Received unknown packet from {}", src.ip()));
+                    }
+                    MessageType::SERVER_STATUS => {
+                        // get common information to answer the request
+                        let connected_clients = {
+                            CLIENTS_SENDERS_REF.read().await.len()
+                        };
+
+                        // check if the request is from a connected client or not :
+                        if client_id == 0 {
+                            log(Info, DatagramsHandler, format!("Received SERVER_STATUS packet from {}", src.ip()));
+                            // not connected : send the datagram manually to the source
+                            receiver.send_to(
+                                &RQ_ServerStatus_ACK::new(server_is_running, connected_clients as u64).as_bytes(),
+                                src
+                            ).await.unwrap();
+                        }else{
+                            log(Info, DatagramsHandler, format!("Received SERVER_STATUS packet from {}", client_id));
+                            // Connected : send the response with the method to update client life signe timestamp
+                            let client_sender = {
+                                CLIENTS_SENDERS_REF.read().await.get(&client_id).unwrap().clone()
+                            };
+                            send_datagram(
+                                receiver.clone(),
+                                &RQ_ServerStatus_ACK::new(server_is_running, connected_clients as u64).as_bytes(),
+                                src,
+                                client_sender,
+                            ).await.unwrap();
+                        }
+
+
                     }
                 }
             }
