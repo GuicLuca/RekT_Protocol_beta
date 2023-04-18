@@ -43,6 +43,7 @@ struct ConfigTomlDebug {
     debug_heartbeat_checker: Option<bool>,
     debug_topic_handler: Option<bool>,
     debug_client_manager: Option<bool>,
+    debug_object_handler: Option<bool>,
 }
 
 // Used to load every table of the toml file
@@ -66,7 +67,8 @@ pub struct Config {
     pub debug_data_handler: bool,
     pub debug_heartbeat_checker: bool,
     pub debug_topic_handler: bool,
-    pub debug_client_manager:bool,
+    pub debug_client_manager: bool,
+    pub debug_object_handler: bool,
 }
 
 impl Config {
@@ -147,7 +149,8 @@ impl Config {
             debug_data_handler,
             debug_heartbeat_checker,
             debug_topic_handler,
-            debug_client_manager): (LogLevel, bool, bool, bool, bool, bool, bool) = match config_toml.debug {
+            debug_client_manager,
+            debug_object_handler,): (LogLevel, bool, bool, bool, bool, bool, bool, bool) = match config_toml.debug {
             Some(debug) => {
                 let d_level: LogLevel = debug.debug_level.unwrap_or_else(|| {
                     println!("Missing field debug_level in table debug.");
@@ -177,12 +180,16 @@ impl Config {
                     println!("Missing field debug_client_manager in table debug.");
                     true // Default value if none found
                 });
+                let d_object = debug.debug_object_handler.unwrap_or_else(|| {
+                    println!("Missing field debug_object_handler in table debug.");
+                    true // Default value if none found
+                });
 
-                (d_level, d_datagram, d_ping, d_data, d_heart, d_topic, d_manager)
+                (d_level, d_datagram, d_ping, d_data, d_heart, d_topic, d_manager, d_object)
             }
             None => {
                 println!("Missing table debug.");
-                (LogLevel::All, true, true, true, true, true, true) // Default value if none found
+                (LogLevel::All, true, true, true, true, true, true, true) // Default value if none found
             }
         };
 
@@ -198,6 +205,7 @@ impl Config {
             debug_heartbeat_checker,
             debug_topic_handler,
             debug_client_manager,
+            debug_object_handler
         }
     }
 }
