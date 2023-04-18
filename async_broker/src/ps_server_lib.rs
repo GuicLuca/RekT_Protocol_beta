@@ -191,7 +191,6 @@ pub async fn get_new_ping_reference(pings: PingsHashMap, config: Arc<Config>) ->
 /**
 This method check if heartbeat are sent correctly and else close the client session
 @param client_id u64 : The client identifier.
-TODO : completer la doc
 @param clients ClientsHashMap<SocketAddr> : An atomic reference of the pings HashMap. The map is protected by a rwlock to be thread safe
 
 @return None

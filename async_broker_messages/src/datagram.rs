@@ -661,7 +661,7 @@ pub struct RQ_Connect_ACK_ERROR {
 impl RQ_Connect_ACK_ERROR {
     pub fn new(message: &str) -> RQ_Connect_ACK_ERROR {
         let reason: Vec<u8> = message.as_bytes().into();
-        let message_size = (reason.len() + 1) as u16;
+        let message_size = reason.len() as u16;
         RQ_Connect_ACK_ERROR { message_type: MessageType::CONNECT_ACK, status: ConnectStatus::FAILURE, message_size, reason }
     }
 
@@ -684,7 +684,7 @@ impl From<&[u8]> for RQ_Connect_ACK_ERROR {
             message_type: MessageType::CONNECT_ACK,
             status: ConnectStatus::FAILURE,
             message_size: size,
-            reason: get_bytes_from_slice(buffer, 4, (4 + size - 1) as usize),
+            reason: get_bytes_from_slice(buffer, 4, (4 + size) as usize),
         }
     }
 }
@@ -856,22 +856,19 @@ impl From<&[u8]> for RQ_OpenStream {
 pub struct RQ_TopicRequest {
     pub message_type: MessageType, // 1 byte
     pub action: TopicsAction, // 1 byte
-    pub size: Size, // 2 bytes (u16)
-    pub topic_id: u64, // size bytes
+    pub topic_id: u64, // 8 bytes
 }
 
 //===== Sent to subscribe a topic
 impl RQ_TopicRequest {
     pub fn new(action: TopicsAction, topic_id: u64) -> RQ_TopicRequest {
-        let size = (8 + 1) as u16; // topic_id + 1 for the action
-        RQ_TopicRequest { message_type: MessageType::TOPIC_REQUEST, action, size, topic_id }
+        RQ_TopicRequest { message_type: MessageType::TOPIC_REQUEST, action, topic_id }
     }
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = Vec::with_capacity(12);
+        let mut bytes: Vec<u8> = Vec::with_capacity(10);
         bytes.push(u8::from(self.message_type));
-        bytes.extend(self.size.to_le_bytes());
         bytes.push(u8::from(self.action));
         bytes.extend(self.topic_id.to_le_bytes());
         return bytes;
@@ -880,14 +877,11 @@ impl RQ_TopicRequest {
 
 impl From<&[u8]> for RQ_TopicRequest {
     fn from(buffer: &[u8]) -> Self {
-        let size = u16::from_le_bytes(buffer[1..].split_at(size_of::<u16>()).0.try_into().unwrap());
-        let payload_end = 4 + (size - 1) as usize;
 
         RQ_TopicRequest {
             message_type: MessageType::TOPIC_REQUEST,
-            action: TopicsAction::from(*buffer.get(3).unwrap()),
-            size,
-            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer,4,11).try_into().expect("Failed to get the topic id slice from the buffer in a RQ_TopicRequest from u8")),
+            action: TopicsAction::from(*buffer.get(1).unwrap()),
+            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer,2,9).try_into().expect("Failed to get the topic id slice from the buffer in a RQ_TopicRequest from u8")),
         }
     }
 }
@@ -934,7 +928,7 @@ pub struct RQ_TopicRequest_NACK {
 impl RQ_TopicRequest_NACK{
 
     pub fn new(status: TopicsResponse, error_message: &str) -> RQ_TopicRequest_NACK {
-        let size = (error_message.len() + 1) as u16; // string length + 1 for the action
+        let size = error_message.len() as u16; // string length + 1 for the action
         RQ_TopicRequest_NACK { message_type: MessageType::TOPIC_REQUEST_ACK, status, size, error_message: error_message.as_bytes().into()}
     }
 
@@ -956,7 +950,7 @@ impl From<&[u8]> for RQ_TopicRequest_NACK {
             message_type: MessageType::TOPIC_REQUEST_ACK,
             status: TopicsResponse::from(buffer.get(1).unwrap().clone()),
             size,
-            error_message: get_bytes_from_slice(buffer, 4, (4 + size - 1) as usize)
+            error_message: get_bytes_from_slice(buffer, 4, (4 + size) as usize)
         }
     }
 }
@@ -972,7 +966,7 @@ pub struct RQ_Data{
 impl RQ_Data {
 
     pub fn new(sequence_number: u32, topic_id: u64, payload: Vec<u8>)-> RQ_Data {
-        let size = (payload.len() + 8) as u16; // payload length + 8 for topic id
+        let size = payload.len() as u16;
         RQ_Data { message_type: MessageType::DATA, size, sequence_number, topic_id, data: payload }
     }
 
@@ -991,7 +985,7 @@ impl RQ_Data {
 impl From<&[u8]> for RQ_Data {
     fn from(buffer: &[u8]) -> Self {
         let size = u16::from_le_bytes(buffer[1..].split_at(size_of::<u16>()).0.try_into().unwrap());
-        let data_end = 15 + (size - 8) as usize;
+        let data_end = 15 + size as usize;
 
         RQ_Data {
             message_type: MessageType::DATA,
@@ -1014,7 +1008,7 @@ pub struct RQ_ObjectRequest{
 }
 impl RQ_ObjectRequest {
     pub fn new(flags: ObjectFlags, object_id: u64, topics: HashSet<u64>)-> RQ_ObjectRequest {
-        let size: u16 = (1 + 8 + topics.len() * size_of::<u64>()) as u16; // 1 = flags, 8 = object_id, x = size_of(topics)
+        let size: u16 = (topics.len() * size_of::<u64>()) as u16; // x = size_of(topics)
         RQ_ObjectRequest{
             message_type:MessageType::OBJECT_REQUEST,
             size,
@@ -1026,7 +1020,7 @@ impl RQ_ObjectRequest {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = Vec::with_capacity(3 + self.size as usize); // 3 = messageType + size
+        let mut bytes: Vec<u8> = Vec::with_capacity(12 + self.size as usize); // 3 = messageType + size
         bytes.push(u8::from(self.message_type));
         bytes.extend(self.size.to_le_bytes());
         bytes.push(u8::from(self.flags));
@@ -1045,14 +1039,18 @@ impl RQ_ObjectRequest {
 impl From<&[u8]> for RQ_ObjectRequest {
     fn from(buffer: &[u8]) -> Self {
         let size = u16::from_le_bytes(buffer[1..].split_at(size_of::<u16>()).0.try_into().unwrap());
-        let topics: HashSet<u64> = get_bytes_from_slice(buffer, 12, (size as usize - 9))
-            // Convert the bytes vector to a vector of topics id by grouping u8 into u64
-            .chunks_exact(8)
-            .map(|chunk| {
-                u64::from_le_bytes(chunk.try_into().unwrap())
-            })
-            .collect();
-
+        let mut topics: HashSet<u64>;
+        if size != 0 {
+            topics = get_bytes_from_slice(buffer, 12, (size as usize + 12))
+                // Convert the bytes vector to a vector of topics id by grouping u8 into u64
+                .chunks_exact(8)
+                .map(|chunk| {
+                    u64::from_le_bytes(chunk.try_into().unwrap())
+                })
+                .collect();
+        }else{
+            topics = HashSet::default();
+        }
         RQ_ObjectRequest {
             message_type: MessageType::OBJECT_REQUEST,
             size,
@@ -1183,7 +1181,7 @@ impl From<&[u8]> for RQ_ObjectRequest_NACK {
             flags: buffer[1],
             object_id: u64::from_le_bytes(buffer[2..].split_at(size_of::<u64>()).0.try_into().unwrap()),
             reason_size: size,
-            reason: get_bytes_from_slice(buffer, 12, (size - 1) as usize)
+            reason: get_bytes_from_slice(buffer, 12, (size + 12) as usize)
         }
     }
 }

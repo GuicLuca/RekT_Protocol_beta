@@ -372,13 +372,6 @@ async fn datagrams_handler(
                             };
                         });
                     }
-                    MessageType::SERVER_STATUS_ACK | MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING | MessageType::TOPIC_REQUEST_NACK | MessageType::OBJECT_REQUEST_NACK => {
-                        // 4.9 - invalid datagrams for the server
-                        log(Warning, DatagramsHandler, format!("{} has sent an invalid datagram.", client_id));
-                    }
-                    MessageType::UNKNOWN => {
-                        log(Warning, DatagramsHandler, format!("Received unknown packet from {}", src.ip()));
-                    }
                     MessageType::SERVER_STATUS => {
                         // get common information to answer the request
                         let connected_clients = {
@@ -406,8 +399,13 @@ async fn datagrams_handler(
                                 client_sender,
                             ).await.unwrap();
                         }
-
-
+                    }
+                    MessageType::SERVER_STATUS_ACK | MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING | MessageType::TOPIC_REQUEST_NACK | MessageType::OBJECT_REQUEST_NACK => {
+                        // 4.9 - invalid datagrams for the server
+                        log(Warning, DatagramsHandler, format!("{} has sent an invalid datagram.", client_id));
+                    }
+                    MessageType::UNKNOWN => {
+                        log(Warning, DatagramsHandler, format!("Received unknown packet from {}", src.ip()));
                     }
                 }
             }

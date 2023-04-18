@@ -1,6 +1,9 @@
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
+use std::mem::size_of;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use tokio::net::UdpSocket;
@@ -107,7 +110,7 @@ impl Client {
 
         let socket = self.socket.clone();
         tokio::spawn(async move{
-            while true {
+            loop {
                 let mut hasher = DefaultHasher::new();
                 "/home/topix/xd".hash(&mut hasher);
                 let topic_id: u64 = hasher.finish();
@@ -115,6 +118,17 @@ impl Client {
                 sequence_number +=1;
             }
         });
+
+        let mut hasher = DefaultHasher::new();
+        "/home/topix/xd".hash(&mut hasher);
+        let mut topics: HashSet<u64> = HashSet::with_capacity(size_of::<u64>() * 4);
+        topics.insert(hasher.finish());
+        "/home/topix/xdjghfhjgfj".hash(&mut hasher);
+        topics.insert(hasher.finish());
+
+        self.socket.send(
+            &RQ_ObjectRequest::new(ObjectFlags::CREATE, generate_object_id(ObjectIdentifierType::USER_GENERATED),topics).as_bytes()
+        ).await;
 
         loop {
             let mut buffer = [0; 1024];
@@ -148,6 +162,7 @@ impl Client {
                             }
                         }
                         MessageType::TOPIC_REQUEST_ACK =>{
+                            println!("[Client - topic ack] RECIEVE A TOPIC REQUEST ACK     ___     server({})", src.ip());
                             if(TopicsResponse::from(buffer[1]) == TopicsResponse::SUCCESS_SUB){
                                 println!("{:?}", buffer);
                                 self.topic_id = RQ_TopicRequest_ACK::from(buffer.as_ref()).topic_id;
@@ -156,7 +171,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -165,7 +180,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -174,7 +189,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -183,7 +198,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -192,7 +207,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -201,7 +216,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -210,7 +225,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -219,7 +234,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -228,7 +243,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -237,7 +252,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -246,7 +261,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -255,7 +270,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -264,7 +279,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -273,7 +288,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -282,7 +297,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -291,7 +306,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -300,7 +315,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -309,7 +324,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -318,7 +333,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -327,7 +342,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -336,7 +351,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -345,7 +360,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -354,7 +369,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -363,7 +378,7 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
@@ -372,20 +387,32 @@ impl Client {
                                 let topic_id = self.topic_id;
                                 let msg = random_msg.clone();
                                 tokio::spawn(async move{
-                                    while true {
+                                    loop {
                                         socket.send(&RQ_Data::new(sequence_number, topic_id, msg.as_bytes().to_vec()).as_bytes()).await;
                                         sequence_number +=1;
                                     }
                                 });
                             }
                         }
-                        MessageType::TOPIC_REQUEST_NACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::PONG => {}
+                        MessageType::SERVER_STATUS | MessageType::TOPIC_REQUEST_NACK | MessageType::CONNECT_ACK | MessageType::PONG => {}
                         MessageType::UNKNOWN => {
                             println!("[Client] Received unknown packet from {}", src.ip())
                         }
                         MessageType::HEARTBEAT_REQUEST => {
                             println!("[Client - Heart beat] Received an HB request so answer to it !");
                             self.socket.send_to(&RQ_Heartbeat::new().as_bytes(), src);
+                        }
+                        MessageType::OBJECT_REQUEST_NACK => {
+                            println!("[Client - OBJ request nack] Received an object request NACK response : {:?}!", buffer);
+                        }
+                        MessageType::OBJECT_REQUEST_ACK => {
+                            println!("[Client - OBJ request ack] Received an object request ACK response : {:?}!", buffer);
+                            self.socket.send(
+                                &RQ_ObjectRequest::new(ObjectFlags::DELETE, u64::from_le_bytes(buffer[10..].split_at(size_of::<u64>()).0.try_into().unwrap()), HashSet::default()).as_bytes()
+                            ).await;
+                        }
+                        MessageType::SERVER_STATUS_ACK => {
+                            println!("[Client - server_status ack] Received an server status request ACK response : {:?}!", buffer);
                         }
                     }
                     //192.168.0.180
@@ -417,5 +444,33 @@ impl Client {
         }
         println!("{percentage}% bytes sent");
         return true;
+    }
+}
+
+/**
+ * This method generate a new object id and set
+ * the two MSB according to the type needed.
+ * /!\ Unknown type is not allow and will return 0.
+ *
+ * @param id_type: ObjectIdentifierType
+ *
+ * @return ObjectId or 0
+ */
+pub fn generate_object_id(id_type: ObjectIdentifierType) -> ObjectId {
+    // 1 - Get the current time
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Failed to get system time").as_nanos() as u64;
+    let u64_with_msb_00 = now & 0x3FFFFFFFFFFFFFFF; // the mask allow to set two MSB to 00 to rewrite them after
+    // 2 - set é MSB according to the type
+    match id_type {
+        ObjectIdentifierType::USER_GENERATED => {
+            u64_with_msb_00 | 0x0000000000000000
+        }
+        ObjectIdentifierType::BROKER_GENERATED => {
+            u64_with_msb_00 | 0x0100000000000000
+        }
+        ObjectIdentifierType::TEMPORARY => {
+            u64_with_msb_00 | 0x1000000000000000
+        }
+        _ => 0
     }
 }

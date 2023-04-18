@@ -7,8 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{oneshot};
 
-use crate::client_lib::ClientActions::{AddSubscribedTopic, Get};
-use crate::{CONFIG, OBJECT_SUBSCRIBERS_REF, TOPICS_SUBSCRIBERS_REF};
+use crate::client_lib::ClientActions::{AddSubscribedObject, AddSubscribedTopic, Get, RemoveSubscribedObject, RemoveSubscribedTopic};
+use crate::{CONFIG, OBJECT_SUBSCRIBERS_REF, OBJECTS_TOPICS_REF};
 use crate::config::LogLevel::Warning;
 use crate::datagram::ObjectIdentifierType;
 use crate::server_lib::log;
@@ -36,6 +36,12 @@ pub enum ClientActions {
     },
     RemoveSubscribedTopic{
         topic_ids: Vec<TopicId>
+    },
+    AddSubscribedObject{
+        object_id: ObjectId
+    },
+    RemoveSubscribedObject{
+        object_id: ObjectId
     },
     StartManagers{
         server_sender: ServerSocket
@@ -189,28 +195,20 @@ pub fn generate_object_id(id_type: ObjectIdentifierType) -> ObjectId {
 
 pub async fn subscribe_client_to_object(
     object_id: ObjectId,
-    topics : HashSet<TopicId>,
     client_id: ClientId,
     client_sender: ClientSender,
 )
 {
-    // 1 - add the client as subscriber for every object topics
-    {
-        let mut topics_list_writ = TOPICS_SUBSCRIBERS_REF.write().await;
-        topics.iter().for_each(move |topic_id|{
-            topics_list_writ.entry(*topic_id)
-                .and_modify(|subscribers|{
-                    subscribers.insert(client_id);
-                })
-                .or_insert(HashSet::from([client_id]));
-        });
-    }
 
-    // 2 - add topics to the client
+    let topics = {
+        OBJECTS_TOPICS_REF.read().await.get(&object_id).unwrap().clone()
+    };
+
+    // 1 - add topics to the client
     let cmd = AddSubscribedTopic {
         topic_ids: topics.into_iter().collect() // transform the hashset into Vec
     };
-    let cmd_sender = client_sender;
+    let cmd_sender = client_sender.clone();
     tokio::spawn(async move {
         match cmd_sender.send(cmd).await {
             Ok(_) => {}
@@ -219,8 +217,21 @@ pub async fn subscribe_client_to_object(
             }
         };
     });
+    // 2 - add object to the client
+    let cmd = AddSubscribedObject {
+        object_id
+    };
 
-    // 3 - Add the client as object subscriber
+    tokio::spawn(async move {
+        match client_sender.send(cmd).await {
+            Ok(_) => {}
+            Err(_) => {
+                return;
+            }
+        };
+    });
+
+    // 2 - Add the client as object subscriber
     {
         let mut object_sub_write = OBJECT_SUBSCRIBERS_REF.write().await;
         let subscribers_set = object_sub_write.entry(object_id)
@@ -233,4 +244,77 @@ pub async fn subscribe_client_to_object(
     }
 }
 
-//TODO faire la même method qu'au dessus mais pour unsub un object
+pub async fn unsubscribe_client_to_object(
+    client_id: ClientId,
+    object_id: ObjectId,
+    client_sender: ClientSender
+)
+{
+    // 1 - Get client and object information
+    let topics = {
+        OBJECTS_TOPICS_REF.read().await.get(&object_id).unwrap().clone()
+    };
+
+    // 2 - remove topics from the client struct
+    let cmd = RemoveSubscribedTopic {
+        topic_ids: topics.clone().into_iter().collect() // transform the hashset into Vec
+    };
+    let cmd_sender = client_sender.clone();
+    tokio::spawn(async move {
+        match cmd_sender.send(cmd).await {
+            Ok(_) => {}
+            Err(_) => {
+                return;
+            }
+        };
+    });
+
+
+    // 3 - remove object to the client
+    let cmd = RemoveSubscribedObject {
+        object_id
+    };
+    tokio::spawn(async move {
+        match client_sender.send(cmd).await {
+            Ok(_) => {}
+            Err(_) => {
+                return;
+            }
+        };
+    });
+
+    // 4 - Remove the client of the object
+    {
+        OBJECT_SUBSCRIBERS_REF.write().await.entry(object_id)
+            .and_modify(|subscribers|{
+            subscribers.remove(&client_id);
+        });
+    }
+}
+
+
+pub async fn is_object_id_valid(
+    object_id: ObjectId
+) -> bool
+{
+    let existing_id = {
+        OBJECT_SUBSCRIBERS_REF.read().await.get(&object_id).is_some()
+    };
+
+    return get_object_id_type(object_id) != ObjectIdentifierType::BROKER_GENERATED && existing_id;
+}
+
+/**
+ * This method return a tuple off two vec containing
+ * added and removed values.
+ *
+ * @param new_set: &HashSet<TopicId>, The new set containing incoming values
+ * @param current_set: &HashSet<TopicId>, the current set containing actual values
+ *
+ * @return added_values, removed_values: (Vec<TopicId>, Vec<TopicId>): two vectors containing differences from the original set
+ */
+pub fn diff_hashsets(new_set: &HashSet<TopicId>, current_set: &HashSet<TopicId>) -> (Vec<TopicId>, Vec<TopicId>) {
+    let added_values = new_set.difference(current_set).cloned().collect();
+    let removed_values = current_set.difference(new_set).cloned().collect();
+    (added_values, removed_values)
+}
