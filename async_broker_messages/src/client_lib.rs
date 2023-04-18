@@ -192,7 +192,15 @@ pub fn generate_object_id(id_type: ObjectIdentifierType) -> ObjectId {
     }
 }
 
-
+/**
+ * This method is a shortcut to subscribe a
+ * client to an object. It will update global and
+ * local hashsets in one function.
+ *
+ * @param object_id: ObjectId, The object identifier
+ * @param client_id: ClientId, The client identifier
+ * @param client_sender: ClientSender, The client sender used to send command through
+ */
 pub async fn subscribe_client_to_object(
     object_id: ObjectId,
     client_id: ClientId,
@@ -244,6 +252,15 @@ pub async fn subscribe_client_to_object(
     }
 }
 
+/**
+ * This method is a shortcut to unsubscribe a
+ * client to an object. It will update global and
+ * local hashsets in one function.
+ *
+ * @param object_id: ObjectId, The object identifier
+ * @param client_id: ClientId, The client identifier
+ * @param client_sender: ClientSender, The client sender used to send command through
+ */
 pub async fn unsubscribe_client_to_object(
     client_id: ClientId,
     object_id: ObjectId,
@@ -292,7 +309,15 @@ pub async fn unsubscribe_client_to_object(
     }
 }
 
-
+/**
+ * This method ensure the given objectId
+ * is a broker generated id and it still
+ * exist.
+ *
+ * @param object_id: ObjectId, The object identifier
+ *
+ * @return bool
+ */
 pub async fn is_object_id_valid(
     object_id: ObjectId
 ) -> bool

@@ -38,11 +38,7 @@ mod types;
 
 use lazy_static::lazy_static;
 
-// TODO : faire la RFC des objets
-// Todo : mettre à jour la RFC des datagrams et ajouter les nouveaux
-// TODO : mettre à jour la section data de la RFC
-// TODO : mettre à jour la doc des nouvelles fonctions
-// Todo : verrifier que l'ancienne doc est toujours good
+
 
 lazy_static! {
     static ref ISRUNNING: Arc<RwLock<bool>> = Arc::from(RwLock::from(false)); // Flag showing if the server is running or not
