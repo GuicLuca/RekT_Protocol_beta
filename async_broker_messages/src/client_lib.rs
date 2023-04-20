@@ -9,7 +9,7 @@ use tokio::sync::{oneshot};
 
 use crate::client_lib::ClientActions::{AddSubscribedObject, AddSubscribedTopic, Get, RemoveSubscribedObject, RemoveSubscribedTopic};
 use crate::{CONFIG, OBJECT_SUBSCRIBERS_REF, OBJECTS_TOPICS_REF};
-use crate::config::LogLevel::Warning;
+use crate::config::LogLevel::{Info};
 use crate::datagram::ObjectIdentifierType;
 use crate::server_lib::log;
 use crate::server_lib::LogSource::ClientManager;
@@ -120,7 +120,7 @@ pub async fn client_has_sent_life_sign(
     // 4 - Compute the last time the client should have sent life signe.
     // = now - Heartbeat_period (in ms)
     let should_have_give_life_sign = now - (CONFIG.heart_beat_period*1000 ) as u128;
-    log(Warning, ClientManager, format!("Calcul du temps : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign));
+    log(Info, ClientManager, format!("Calcul du temps : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign));
     // return true if the last request is sooner than the current time minus the heartbeat_period
     return last_client_request >= should_have_give_life_sign;
 }

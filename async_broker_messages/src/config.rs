@@ -58,7 +58,7 @@ struct ConfigToml {
 // values of the toml file.
 #[derive(Debug)]
 pub struct Config {
-    pub port: String,
+    pub port: u16,
     pub heart_beat_period: u16,
     pub ping_period: u16,
     pub debug_level: LogLevel,
@@ -195,7 +195,7 @@ impl Config {
 
 
         Config {
-            port: port.to_string(),
+            port,
             heart_beat_period: heartbeat_period,
             ping_period,
             debug_level,

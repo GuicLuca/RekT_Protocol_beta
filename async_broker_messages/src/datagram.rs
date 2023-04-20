@@ -5,6 +5,7 @@ use std::mem::size_of;
 use std::str::from_utf8;
 use serde::de::Unexpected::Bool;
 use crate::config::LogLevel;
+use crate::datagram::EndConnexionReason::SYNC_ERROR;
 use crate::types::{ClientId, ObjectId, PingId, Size};
 
 /** ==================================
@@ -208,6 +209,7 @@ impl From<u8> for ConnectStatus {
 pub enum EndConnexionReason {
     SHUTDOWN,
     ERROR,
+    SYNC_ERROR,
     UNKNOWN,
 }
 
@@ -223,6 +225,7 @@ impl From<u8> for EndConnexionReason {
         match value {
             0x00 => EndConnexionReason::SHUTDOWN,
             0x01 => EndConnexionReason::ERROR,
+            0x02 => EndConnexionReason::SYNC_ERROR,
             _ => EndConnexionReason::UNKNOWN,
         }
     }
@@ -240,7 +243,8 @@ impl From<EndConnexionReason> for u8 {
         match value {
             EndConnexionReason::SHUTDOWN => 0x00,
             EndConnexionReason::ERROR => 0x01,
-            EndConnexionReason::UNKNOWN => 0xAA
+            EndConnexionReason::SYNC_ERROR => 0x02,
+            EndConnexionReason::UNKNOWN => 0xAA,
         }
     }
 }

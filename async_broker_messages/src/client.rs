@@ -207,8 +207,17 @@ impl Client {
                         {
                             // 1 - get the mutable ref of all ping request
                             let mut pings_ref_mut = PINGS_REF.lock().await;
+
                             // 2 - compute the round trip
-                            round_trip = (current_time - pings_ref_mut.get(&ping_id).unwrap()) / 2;
+                            round_trip = match pings_ref_mut.get(&ping_id){
+                                None => {
+                                    log(Warning, ClientManager, format!("Client {} has tried to answer a wrong ping id. Id sent : {}", self.id, ping_id));
+                                    continue;
+                                }
+                                Some(time_reference) => {
+                                    (current_time - time_reference) / 2
+                                }
+                            };
                             // 3 - free the ping_id
                             pings_ref_mut.remove(&ping_id);
                         }
@@ -298,14 +307,14 @@ impl Client {
                             match topic_rq.action {
                                 TopicsAction::SUBSCRIBE => {
                                     // 1 - check if topic exist, and if client is already sub
-                                    let is_subscribed = {
+                                    let already_subscribed = {
                                         let topics_sub_read = TOPICS_SUBSCRIBERS_REF.read().await;
                                         topics_sub_read.get(&topic_rq.topic_id).is_some() &&
                                             topics_sub_read.get(&topic_rq.topic_id).unwrap().contains(&client_id)
                                     };
 
                                     // this is false when the client is already sub
-                                    if is_subscribed {
+                                    if !already_subscribed {
                                         // 2 - inform the client that he's subscribed and update personal and global array
                                         let cmd = AddSubscribedTopic { topic_ids: vec![topic_rq.topic_id] };
                                         let cmd_sender = client_sender.clone();

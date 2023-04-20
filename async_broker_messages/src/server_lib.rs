@@ -4,7 +4,7 @@ use rand::Rng;
 
 use crate::client_lib::{now_ms};
 use crate::client_lib::ClientActions::{UpdateServerLastRequest};
-use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CONFIG, PINGS_REF};
+use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CLIENTS_STRUCTS_REF, CONFIG, ISRUNNING, OBJECT_SUBSCRIBERS_REF, PINGS_REF, TOPICS_SUBSCRIBERS_REF};
 use crate::config::{LogLevel};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
@@ -241,4 +241,55 @@ pub async fn send_datagram(
     });
     // 3 - return the number of bytes sent
     return result;
+}
+
+/**
+ * This method update the server status
+ *
+ * @param new_status: bool, The new status of the the server
+ */
+pub async fn update_server_status(new_status: bool){
+    let mut status = ISRUNNING.write().await;
+    *status= new_status;
+    // write lock is dropped
+}
+
+/**
+ * This method will try to remove the client id from all common sets
+ *
+ * @param client_id: ClientId, The client to remove from common hashsets
+ */
+pub async fn try_remove_client_from_set(client_id: ClientId){
+    // 1 - Client sender
+    {
+        CLIENTS_SENDERS_REF.write().await.remove(&client_id);
+    }
+    // 2 - Client address
+    {
+        CLIENTS_ADDRESSES_REF.write().await.remove(&client_id);
+    }
+    // 3 - Client struct
+    {
+        CLIENTS_STRUCTS_REF.write().await.remove(&client_id);
+    }
+    // 4 - Client sender
+    {
+        CLIENTS_SENDERS_REF.write().await.remove(&client_id);
+    }
+    // 5 - Topics subscriber
+    {
+        let mut topics_list_writ = TOPICS_SUBSCRIBERS_REF.write().await;
+
+        topics_list_writ.iter_mut().for_each(|(_, topic_subscribers)| {
+            topic_subscribers.remove(&client_id);
+        });
+    }
+    // 6 - Objects subscriber
+    {
+        let mut objects_list_writ = OBJECT_SUBSCRIBERS_REF.write().await;
+
+        objects_list_writ.iter_mut().for_each(|(_, object_subscribers)| {
+            object_subscribers.remove(&client_id);
+        });
+    }
 }

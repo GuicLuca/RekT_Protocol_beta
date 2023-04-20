@@ -37,6 +37,7 @@ mod client_lib;
 mod types;
 
 use lazy_static::lazy_static;
+use crate::datagram::EndConnexionReason::{SYNC_ERROR};
 
 
 
@@ -64,22 +65,35 @@ lazy_static! {
 async fn main() {
     println!("[Server] Hi there !");
     log(Info, Other, format!("Config generation complete : \n{:#?}", *CONFIG));
-    println!("The ip of the server is {}:{}", local_ip().unwrap(), CONFIG.port);
+    match local_ip() {
+        Ok(ip) => println!("Server local IP and port: [{}:{}]", ip, CONFIG.port),
+        Err(err) => {
+            println!("Failed to get local IP:\n{}", err);
+            println!("\n\nServer stopping!");
+            return; // can't start the server if the local ip can't be reach
+        }
+    };
 
     /*===============================
          Init server variables
      ==============================*/
 
     // The socket used by the server to exchange datagrams with clients
-    let socket = UdpSocket::bind(format!("{}:{}", "0.0.0.0", &CONFIG.port.parse::<i16>().unwrap())).await.unwrap();
-    let socket_ref: ServerSocket = Arc::new(socket);
+    let socket_ref: ServerSocket = match UdpSocket::bind(format!("{}:{}", "0.0.0.0", &CONFIG.port)).await{
+        Ok(socket) => {
+             Arc::new(socket)
+        }
+        Err(err) => {
+            log(Error, Other, format!("Failed to bind the socket to the address {}:{}. Error:\n{}", "0.0.0.0", &CONFIG.port, err));
+            return;
+        }
+    };
+
 
     // =============================
     //    Spawning async functions
     // =============================
-    let mut status = ISRUNNING.write().await;
-    *status= true;
-    drop(status); // release the write lock.
+    update_server_status(true).await;
 
     let (ping_sender, datagram_handler) = { // Closure used to reduce clone lifetime
         // clone needed value for the second task
@@ -104,9 +118,7 @@ async fn main() {
 
     join!(datagram_handler, ping_sender).0.expect("Error while joining the tasks");
 
-    let mut status = ISRUNNING.write().await;
-    *status= false;
-    drop(status); // release the write lock.
+    update_server_status(false).await;
 
     log(Info, Other, format!("Server has stopped ... Running status : {}", ISRUNNING.read().await));
 }
@@ -140,32 +152,59 @@ async fn datagrams_handler(
                 log(Info, DatagramsHandler, format!("Received {} bytes from {}", n, src));
 
                 // 4 - Get the client id source of the request
-                let client_id_found = get_client_id(src).await;
-                let mut client_id = 0;
-                //  5 - Do not handle the datagram if the source is not auth and is not trying to connect
-                if (MessageType::from(buf[0]) != MessageType::CONNECT) && client_id_found.is_none()
-                {
-                    log(Warning, DatagramsHandler, format!("Datagrams dropped from {}. Error : Not connected and trying to {}.", src.ip(), display_message_type(MessageType::from(buf[0]))));
-                    continue;
-                } else if !client_id_found.is_none() {
-                    // The client is already connected
-                    client_id = client_id_found.unwrap();
-
-                    // update his last time he sent a request
-                    let client_sender = {
-                        let map = CLIENTS_SENDERS_REF.read().await;
-                        map.get(&client_id).unwrap().clone()
-                    };
-                    let cmd = UpdateClientLastRequest { time: now_ms() };
-                    tokio::spawn(async move {
-                        match client_sender.send(cmd).await {
-                            Ok(_) => {}
-                            Err(_) => {
-                                return;
+                let client_id: ClientId = match get_client_id(src).await {
+                    //  5 - Do not handle the datagram if the source is not auth and is not trying to connect
+                    None => {
+                        if MessageType::from(buf[0]) != MessageType::CONNECT
+                        {
+                            log(Warning, DatagramsHandler, format!("Datagrams dropped from {}. Error : Not connected and trying to {}.", src.ip(), display_message_type(MessageType::from(buf[0]))));
+                            continue;
+                        }
+                        // set client_id to 0 for a default value
+                        0
+                    }
+                    Some(id) => {
+                        // update his last time he sent a request
+                        let client_sender = {
+                            let map = CLIENTS_SENDERS_REF.read().await;
+                            match map.get(&id){
+                                None => {
+                                    // Client id is not set in the senders hashsets :
+                                    // SYNC ERROR clients_hashset are not sync so try to clean the id from every client sets
+                                    log(Error, DatagramsHandler, format!("The client {} has common hashset sync issue. Closing the connexion with an connect_NACK", src.ip()));
+                                    tokio::spawn(async move {
+                                       try_remove_client_from_set(id).await;
+                                    });
+                                    match receiver.send_to(
+                                        &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                                        src
+                                    ).await {
+                                        Err(err) => {
+                                            log(Error, DatagramsHandler, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", src.ip(), err));
+                                        }
+                                        _ => {}
+                                    }
+                                    return;
+                                }
+                                Some(sender) => {
+                                    // return the clone of the client sender
+                                    sender.clone()
+                                }
                             }
                         };
-                    });
-                }
+                        let cmd = UpdateClientLastRequest { time: now_ms() };
+                        tokio::spawn(async move {
+                            match client_sender.send(cmd).await {
+                                Ok(_) => {}
+                                Err(_) => {
+                                    return;
+                                }
+                            };
+                        });
+                        // set client_id with the found one
+                        id
+                    }
+                };
 
                 // 6 - Match the datagram type and process it
                 match MessageType::from(buf[0]) {
