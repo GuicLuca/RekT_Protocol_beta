@@ -182,10 +182,7 @@ pub async fn get_new_ping_reference() -> PingId {
     let key = get_new_ping_id();
 
     // 2 - Get the current time as reference to compute the round trip later
-    let time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis(); // Current time in ms
+    let time = now_ms();
 
     // 3 - Save it into the array
     PINGS_REF.lock().await.insert(key, time);

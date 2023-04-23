@@ -14,11 +14,12 @@ use tokio::sync::mpsc::{Receiver};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
-use crate::client_lib::{client_has_sent_life_sign, ClientActions, diff_hashsets, generate_object_id, get_object_id_type, is_object_id_valid, now_ms, subscribe_client_to_object, unsubscribe_client_to_object, vec_to_u8};
+use crate::client_lib::{client_has_sent_life_sign, ClientActions, diff_hashsets, generate_object_id, get_client_addr, get_client_sender, get_object_id_type, is_object_id_valid, now_ms, subscribe_client_to_object, unsubscribe_client_to_object, vec_to_u8};
 use crate::client_lib::ClientActions::*;
 use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CLIENTS_STRUCTS_REF, CONFIG, ISRUNNING, OBJECT_SUBSCRIBERS_REF, OBJECTS_TOPICS_REF, PINGS_REF, TOPICS_SUBSCRIBERS_REF};
 use crate::config::LogLevel::*;
 use crate::datagram::*;
+use crate::datagram::EndConnexionReason::SYNC_ERROR;
 use crate::server_lib::*;
 use crate::server_lib::LogSource::*;
 use crate::types::{ClientId, ObjectId, ServerSocket, TopicId};
@@ -148,17 +149,31 @@ impl Client {
                         // 2 - Spawn a async task
                         tokio::spawn(async move {
                             // 1 - Build the request struct for easy access members
-                            let data_rq = RQ_Data::from(buffer.as_ref());
+                            let data_rq = match RQ_Data::try_from(buffer.as_ref()){
+                                Ok(request) => {
+                                    request
+                                }
+                                Err(err) => {
+                                    log(Error, DataHandler, format!("Failed to construct the data request structure. Request:\n{:?} \n\nError:\n{}", buffer, err));
+                                    return;
+                                }
+                            };
+
                             {
                                 // 2 - Check if the request is newer than the previous one.
                                 let mut write_rq_counter_ref = requests_counter_ref.write().await;
-                                if write_rq_counter_ref.contains_key(&data_rq.topic_id) {
-                                    if data_rq.sequence_number < *write_rq_counter_ref.get(&data_rq.topic_id).unwrap()
-                                        && data_rq.sequence_number > 50 // this condition allow circle id (id 0..49 will override MAX_ID)
-                                    {
-                                        // Request is out-dated or the topic is unknown
-                                        log(Warning, DataHandler, format!("Client {} sent a data with a sequence number lower than the last one", client_id));
-                                        return;
+                                match write_rq_counter_ref.get(&data_rq.topic_id){
+                                    None => {
+                                        // Unknown sequence number so it must be valid
+                                    }
+                                    Some(current_sequence) => {
+                                        if data_rq.sequence_number < *current_sequence
+                                            && data_rq.sequence_number > 50 // this condition allow circle id (id 0..49 will override MAX_ID)
+                                        {
+                                            // Request is out-dated or the topic is unknown
+                                            log(Warning, DataHandler, format!("Client {} sent a data with a sequence number lower than the last one", client_id));
+                                            return;
+                                        }
                                     }
                                 }
 
@@ -169,32 +184,56 @@ impl Client {
 
                             // 3 - get a list of interested clients
                             let mut interested_clients = {
-                                let read_client_topics = TOPICS_SUBSCRIBERS_REF.read().await;
-                                if !read_client_topics.contains_key(&data_rq.topic_id) {
-                                    log(Warning, DataHandler, format!("Topic {} doesn't exist", data_rq.topic_id));
-                                    return;
+                                match TOPICS_SUBSCRIBERS_REF.read().await.get(&data_rq.topic_id) {
+                                    None => {
+                                        log(Warning, DataHandler, format!("Topic {} doesn't exist", data_rq.topic_id));
+                                        return;
+                                    }
+                                    Some(subscribers) => {
+                                        subscribers.clone()
+                                    }
                                 }
-
-                                read_client_topics.get(&data_rq.topic_id).unwrap().clone()
                             };
 
                             // 4 - remove the source client and then sent the new data to every interested client
                             interested_clients.remove(&client_id);
                             for client in interested_clients {
-                                let client_sender = {
-                                    let map = CLIENTS_SENDERS_REF.read().await;
-                                    map.get(&client).unwrap().clone()
+                                let client_addr = match get_client_addr(client).await {
+                                    Ok(value) => {value}
+                                    Err(_) => {
+                                        // Can't find client address : disconnect the client
+                                        log(Error, DataHandler, format!("Can't find client address. Disconnect the client but can't send Shutdown error."));
+                                        return;
+                                    }
+                                };
+                                let client_sender = match get_client_sender(client).await {
+                                    Ok(sender) => {sender}
+                                    Err(_) => {
+                                        // sender can't be found : send a shutdown for sync error
+                                        match sender.send_to(
+                                            &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                                            client_addr
+                                        ).await {
+                                            Err(err) => {
+                                                log(Error, DataHandler, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", client, err));
+                                            }
+                                            _ => {}
+                                        }
+                                        return;
+                                    }
                                 };
                                 let data = RQ_Data::new(data_rq.sequence_number, data_rq.topic_id, data_rq.data.clone());
                                 let data = data.as_bytes();
-                                let client_addr = {
-                                    // use closure to reduce the lock lifetime
-                                    *CLIENTS_ADDRESSES_REF.read().await.get(&client).unwrap()
-                                };
-                                let result = send_datagram(sender.clone(), &data, client_addr, client_sender).await;
 
-                                log(Info, DataHandler, format!("Data propagation : Sent {} bytes to {}", result.unwrap(), client_addr));
-                            }
+                                match send_datagram(sender.clone(), &data, client_addr, client_sender).await {
+                                    Ok(bytes) => {
+                                        log(Info, DataHandler, format!("Data propagation : Sent {} bytes to {}", bytes, client));
+                                    }
+                                    Err(err) => {
+                                        log(Error, DataHandler, format!("Data propagation : Failed to send data to {}. Error:\n{}", client_addr, err));
+                                    }
+                                }
+                            } // end for
                         });
                     }
 
@@ -252,13 +291,27 @@ impl Client {
                             {
                                 let mut write_client_topics = TOPICS_SUBSCRIBERS_REF.write().await;
                                 topic_ids.into_iter().for_each(|topic_id| {
-                                    write_client_topics.get_mut(&topic_id).unwrap().remove(&id);
+                                    match write_client_topics.get_mut(&topic_id) {
+                                        None => {
+                                            // Skip
+                                        }
+                                        Some(subscribers) => {
+                                            subscribers.remove(&id);
+                                        }
+                                    }
                                 });
                             }
                             {
                                 let mut write_client_objects = OBJECT_SUBSCRIBERS_REF.write().await;
                                 object_ids.into_iter().for_each(|object_id| {
-                                    write_client_objects.get_mut(&object_id).unwrap().remove(&id);
+                                    match write_client_objects.get_mut(&object_id) {
+                                        None => {
+                                            // Skip
+                                        }
+                                        Some(subscribers) => {
+                                            subscribers.remove(&id);
+                                        }
+                                    }
                                 });
                             }
 
@@ -301,7 +354,15 @@ impl Client {
                         let client_addr = self.socket;
                         tokio::spawn(async move {
                             // 1 - Init local variables
-                            let topic_rq = RQ_TopicRequest::from(buffer.as_ref());
+                            let topic_rq = match RQ_TopicRequest::try_from(buffer.as_ref()){
+                                Ok(request) => {
+                                    request
+                                }
+                                Err(err) => {
+                                    log(Error, TopicHandler, format!("Failed to construct the topic request structure. Request:\n{:?} \n\nError:\n{}", buffer, err));
+                                    return;
+                                }
+                            };
                             let result;
 
                             match topic_rq.action {
@@ -309,8 +370,16 @@ impl Client {
                                     // 1 - check if topic exist, and if client is already sub
                                     let already_subscribed = {
                                         let topics_sub_read = TOPICS_SUBSCRIBERS_REF.read().await;
-                                        topics_sub_read.get(&topic_rq.topic_id).is_some() &&
-                                            topics_sub_read.get(&topic_rq.topic_id).unwrap().contains(&client_id)
+                                        match topics_sub_read.get(&topic_rq.topic_id){
+                                            None => {
+                                                // topic is not created so it must be not already sub
+                                                false
+                                            }
+                                            Some(subscribers) => {
+                                                // Topic exist : check if the client is is already known or not
+                                                subscribers.contains(&client_id)
+                                            }
+                                        }
                                     };
 
                                     // this is false when the client is already sub
@@ -447,7 +516,15 @@ impl Client {
                         let client_addr = self.socket;
 
                         tokio::spawn(async move {
-                            let request = RQ_ObjectRequest::from(buffer.as_ref());
+                            let request = match RQ_ObjectRequest::try_from(buffer.as_ref()){
+                                Ok(request) => {
+                                    request
+                                }
+                                Err(err) => {
+                                    log(Error, ObjectHandler, format!("Failed to construct the object structure. Request:\n{:?} \n\nError:\n{}", buffer, err));
+                                    return;
+                                }
+                            };
                             let new_object_id: ObjectId;
                             // Check the flag to know how to handle the request
                             match request.flags {
@@ -514,26 +591,46 @@ impl Client {
                                     }
 
                                     // subscribe the creator to this object
-                                    subscribe_client_to_object(
+                                    match subscribe_client_to_object(
                                         new_object_id,
                                         client_id,
                                         client_sender.clone()
-                                    ).await;
-
-                                    // Send an ack request
-                                    let flag: Vec<u8> = vec![1,0,0,0,0,0,0,1]; // was a valid create request
-
-                                    match send_datagram(
-                                        server_socket.clone(),
-                                        &RQ_ObjectRequestCreate_ACK::new(vec_to_u8(flag), request.object_id, new_object_id).as_bytes(),
-                                        client_addr,
-                                        client_sender,
-                                    ).await {
+                                    ).await{
                                         Ok(_) => {
-                                            log(Info, ObjectHandler, format!("{} has successfully subscribe to the object {} from a RQ_ObjectRequestCreate", client_id, new_object_id));
+                                            // Send an ack request
+                                            let flag: Vec<u8> = vec![1,0,0,0,0,0,0,1]; // was a valid create request
+
+                                            match send_datagram(
+                                                server_socket.clone(),
+                                                &RQ_ObjectRequestCreate_ACK::new(vec_to_u8(flag), request.object_id, new_object_id).as_bytes(),
+                                                client_addr,
+                                                client_sender,
+                                            ).await {
+                                                Ok(_) => {
+                                                    log(Info, ObjectHandler, format!("{} has successfully subscribe to the object {} from a RQ_ObjectRequestCreate", client_id, new_object_id));
+                                                }
+                                                Err(error) => {
+                                                    log(Info, ObjectHandler, format!("Failed to send RQ_ObjectRequestCreate_ACK to {}.\nError: {}", client_id, error));
+                                                }
+                                            }
                                         }
-                                        Err(error) => {
-                                            log(Info, ObjectHandler, format!("Failed to send RQ_ObjectRequestCreate_ACK to {}.\nError: {}", client_id, error));
+                                        Err(err) => {
+                                            let flag: Vec<u8> = vec![0,0,0,0,0,0,0,1]; // was a create request
+
+                                            match send_datagram(
+                                                server_socket.clone(),
+                                                &RQ_ObjectRequest_NACK::new(vec_to_u8(flag), request.object_id, "Failed to create the object due to broker error.").as_bytes(),
+                                                client_addr,
+                                                client_sender,
+                                            ).await {
+                                                Ok(_) => {
+                                                    log(Info, ObjectHandler, format!("Failed to create the object requested by {} due to broker error. Successfully notify the client. Error:\n{}", client_id, err));
+                                                }
+                                                Err(error) => {
+                                                    log(Info, ObjectHandler, format!("Failed to create the object requested by {} due to broker error. And fail notify the client. Object Error:\n{}\n\nSend datagram error:\n{}", client_id, err, error));
+                                                }
+                                            }
+                                            return; // Do not execute th following code
                                         }
                                     }
                                 } // End create
@@ -560,19 +657,58 @@ impl Client {
                                     }
                                     // Object id is correct : get the difference from incoming topics and current topics
                                     let current_topics = {
-                                        OBJECTS_TOPICS_REF.read().await.get(&request.object_id).unwrap().clone()
+                                        match OBJECTS_TOPICS_REF.read().await.get(&request.object_id) {
+                                            None => {
+                                                //return an empty hashset to ensure the rest of the method
+                                                log(Warning, ObjectHandler, format!("Failed to find topics list of the object {}.", request.object_id));
+                                                HashSet::default()
+                                            }
+                                            Some(topics) => {
+                                                topics.clone()
+                                            }
+                                        }
                                     };
 
                                     let (added_topics, removed_topics) = diff_hashsets(&request.topics, &current_topics);
 
                                     // Update topics subscription of each client subscribed to this topic
                                     let clients_sub = {
-                                        OBJECT_SUBSCRIBERS_REF.read().await.get(&request.object_id).unwrap().clone()
+                                        match OBJECT_SUBSCRIBERS_REF.read().await.get(&request.object_id) {
+                                            None => {
+                                                //return the client id to ensure he get an answer to his request
+                                                log(Warning, ObjectHandler, format!("Failed to find subscribers list of the object {}.", request.object_id));
+                                                HashSet::from([client_id])
+                                            }
+                                            Some(subscribers) => {
+                                                subscribers.clone()
+                                            }
+                                        }
                                     };
 
                                     for subscriber_id in clients_sub {
-                                        let client_sender = {
-                                            CLIENTS_SENDERS_REF.read().await.get(&client_id).unwrap().clone()
+                                        let client_addr = match get_client_addr(subscriber_id).await {
+                                            Ok(value) => {value}
+                                            Err(_) => {
+                                                // Can't find client address : disconnect the client
+                                                log(Error, ObjectHandler, format!("Can't find client address. Disconnect the client but can't send Shutdown error."));
+                                                return;
+                                            }
+                                        };
+                                        let client_sender = match get_client_sender(client_id).await {
+                                            Ok(sender) => {sender}
+                                            Err(_) => {
+                                                // sender can't be found : send a shutdown for sync error
+                                                match server_socket.send_to(
+                                                    &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                                                    client_addr
+                                                ).await {
+                                                    Err(err) => {
+                                                        log(Error, ObjectHandler, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", client_id, err));
+                                                    }
+                                                    _ => {}
+                                                }
+                                                return;
+                                            }
                                         };
 
                                         // Unsub removed topics
@@ -611,9 +747,7 @@ impl Client {
                                         // Client are now updated to the new version of the object : send them a notification
                                         let flag = vec![1,0,0,0,0,0,1,0]; // was a valid update request
 
-                                        let client_addr = {
-                                            CLIENTS_ADDRESSES_REF.read().await.get(&subscriber_id).unwrap().clone()
-                                        };
+
 
                                         match send_datagram(
                                             server_socket.clone(),
@@ -654,53 +788,111 @@ impl Client {
                                     }
                                     // Object id is correct
 
-                                    // Try et subscribed client to ensure the id exist
+                                    // find every subscribers of this object
                                     let clients_sub = {
-                                        OBJECT_SUBSCRIBERS_REF.read().await.get(&request.object_id).unwrap().clone()
+                                        match OBJECT_SUBSCRIBERS_REF.read().await.get(&request.object_id) {
+                                            None => {
+                                                // If none found, return only the client to confirm the deletion
+                                                log(Warning, ObjectHandler, format!("Failed to find subscribers of the object {}.", request.object_id));
+                                                HashSet::from([client_id])
+                                            }
+                                            Some(subscribers) => {
+                                                subscribers.clone()
+                                            }
+                                        }
                                     };
 
 
                                     // unsubscribe every client sub to this object
                                     for subscriber_id in clients_sub {
-                                        let client_sender = {
-                                            CLIENTS_SENDERS_REF.read().await.get(&client_id).unwrap().clone()
+                                        let client_addr = match get_client_addr(client_id).await {
+                                            Ok(value) => {value}
+                                            Err(_) => {
+                                                // Can't find client address : disconnect the client
+                                                log(Error, ObjectHandler, format!("Can't find client address. Disconnect the client but can't send Shutdown error."));
+                                                return;
+                                            }
+                                        };
+                                        let client_sender = match get_client_sender(client_id).await {
+                                            Ok(sender) => {sender}
+                                            Err(_) => {
+                                                // sender can't be found : send a shutdown for sync error
+                                                match server_socket.send_to(
+                                                    &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                                                    client_addr
+                                                ).await {
+                                                    Err(err) => {
+                                                        log(Error, ObjectHandler, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", client_id, err));
+                                                    }
+                                                    _ => {}
+                                                }
+                                                return;
+                                            }
                                         };
 
-                                        unsubscribe_client_to_object(
+                                        match unsubscribe_client_to_object(
                                             subscriber_id,
                                             request.object_id,
                                             client_sender.clone()
-                                        ).await;
-
-                                        // Client are now unsub, send them a notify or a delete ack
-                                        let mut flag: Vec<u8> = Vec::with_capacity(8);
-                                        let success_msg: String;
-                                        if client_id == subscriber_id {
-                                            flag.extend([1,0,0,0,0,1,0,0]); // was a valid delete request (current client is the source of the deletion)
-                                            success_msg = format!("Object delete notify sent to {} for the object_id : {:b}", subscriber_id, request.object_id);
-                                        }else{
-                                            flag.extend([1,0,0,0,1,0,0,0]); // was a valid unsubscribe request (current client is not the source of the delete)
-                                            success_msg = format!("Unsubscribe notify sent to {} for the object_id : {:b}", subscriber_id, request.object_id);
-                                        }
-
-                                        let client_addr = {
-                                            CLIENTS_ADDRESSES_REF.read().await.get(&subscriber_id).unwrap().clone()
-                                        };
-
-                                        match send_datagram(
-                                            server_socket.clone(),
-                                            &RQ_ObjectRequestDefault_ACK::new(vec_to_u8(flag), request.object_id).as_bytes(),
-                                            client_addr,
-                                            client_sender
                                         ).await {
                                             Ok(_) => {
-                                                log(Info, ObjectHandler, success_msg);
-                                            }
-                                            Err(error) => {
+                                                // Client are now unsub, send them a notify or a delete ack
+                                                let mut flag: Vec<u8> = Vec::with_capacity(8);
+                                                let success_msg: String;
                                                 if client_id == subscriber_id {
-                                                    log(Info, ObjectHandler, format!("Failed to send object delete notify to {}.\nError: {}", subscriber_id, error));
+                                                    flag.extend([1,0,0,0,0,1,0,0]); // was a valid delete request (current client is the source of the deletion)
+                                                    success_msg = format!("Object delete notify sent to {} for the object_id : {:b}", subscriber_id, request.object_id);
                                                 }else{
-                                                    log(Info, ObjectHandler, format!("Failed to send unsubscribe notify to {}.\nError: {}", subscriber_id, error));
+                                                    flag.extend([1,0,0,0,1,0,0,0]); // was a valid unsubscribe request (current client is not the source of the delete)
+                                                    success_msg = format!("Unsubscribe notify sent to {} for the object_id : {:b}", subscriber_id, request.object_id);
+                                                }
+
+                                                match send_datagram(
+                                                    server_socket.clone(),
+                                                    &RQ_ObjectRequestDefault_ACK::new(vec_to_u8(flag), request.object_id).as_bytes(),
+                                                    client_addr,
+                                                    client_sender
+                                                ).await {
+                                                    Ok(_) => {
+                                                        log(Info, ObjectHandler, success_msg);
+                                                    }
+                                                    Err(error) => {
+                                                        if client_id == subscriber_id {
+                                                            log(Error, ObjectHandler, format!("Failed to send object delete notify to {}.\nError: {}", subscriber_id, error));
+                                                        }else{
+                                                            log(Error, ObjectHandler, format!("Failed to send unsubscribe notify to {}.\nError: {}", subscriber_id, error));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Err(err) => {
+                                                // Client are now unsub, send them a notify or a delete ack
+                                                let mut flag: Vec<u8> = Vec::with_capacity(8);
+                                                let failure_msg: String;
+                                                if client_id == subscriber_id {
+                                                    flag.extend([0,0,0,0,0,1,0,0]); // was a failed delete request (current client is the source of the deletion)
+                                                    failure_msg = format!("{} has tried to delete object {} but it failed. Error:\n{}", subscriber_id, request.object_id, err);
+                                                }else{
+                                                    flag.extend([0,0,0,0,1,0,0,0]); // was a failed unsubscribe request (current client is not the source of the delete)
+                                                    failure_msg = format!("{} has tried to delete object {} but it failed. Error:\n{}", client_id, request.object_id, err);
+                                                }
+
+                                                match send_datagram(
+                                                    server_socket.clone(),
+                                                    &RQ_ObjectRequest_NACK::new(vec_to_u8(flag), request.object_id, &*failure_msg).as_bytes(),
+                                                    client_addr,
+                                                    client_sender
+                                                ).await {
+                                                    Ok(_) => {
+                                                        log(Error, ObjectHandler, failure_msg);
+                                                    }
+                                                    Err(error) => {
+                                                        if client_id == subscriber_id {
+                                                            log(Error, ObjectHandler, format!("Failed to send object delete failure notify to {}.\nRequest Error:\n{}\n\nSend datagrams error:\n{}", subscriber_id, err, error));
+                                                        }else{
+                                                            log(Error, ObjectHandler, format!("Failed to send unsubscribe failure notify to {}.\n\nRequest Error:\n{}\n\nSend datagrams error:\n{}", subscriber_id, err, error));
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -709,7 +901,15 @@ impl Client {
                                     // Clean the object :
                                     // Delete topics and then the object itself
                                     {
-                                        let keys_to_remove = OBJECTS_TOPICS_REF.read().await.get(&request.object_id).unwrap().clone();
+                                        let keys_to_remove = match OBJECTS_TOPICS_REF.read().await.get(&request.object_id) {
+                                            None => {
+                                                // return an empty hashset to ensure the normal flow of the end of the method
+                                                HashSet::default()
+                                            }
+                                            Some(topics) => {
+                                                topics.clone()
+                                            }
+                                        };
                                         let mut topics_sub_ref =TOPICS_SUBSCRIBERS_REF.write().await;
                                         keys_to_remove.iter().for_each(move |id|{
                                             topics_sub_ref.remove(id);
@@ -742,27 +942,49 @@ impl Client {
                                     }
 
                                     // 2 - id valid : subscribe the client
-                                    subscribe_client_to_object(
+                                    match subscribe_client_to_object(
                                         request.object_id,
                                         client_id,
                                         client_sender.clone()
-                                    ).await;
-
-                                    // 3 - answer the request
-                                    let flag: Vec<u8> = vec![1,0,0,1,0,0,0,0]; // was a success subscribe request
-                                    match send_datagram(
-                                        server_socket.clone(),
-                                        &RQ_ObjectRequestDefault_ACK::new(vec_to_u8(flag), request.object_id).as_bytes(),
-                                        client_addr,
-                                        client_sender.clone(),
                                     ).await {
                                         Ok(_) => {
-                                            log(Info, ObjectHandler, format!("{} has successfully subscribe to the object of id : {:b}", client_id, request.object_id));
+                                            // 3 - answer the request
+                                            let flag: Vec<u8> = vec![1,0,0,1,0,0,0,0]; // was a success subscribe request
+                                            match send_datagram(
+                                                server_socket.clone(),
+                                                &RQ_ObjectRequestDefault_ACK::new(vec_to_u8(flag), request.object_id).as_bytes(),
+                                                client_addr,
+                                                client_sender.clone(),
+                                            ).await {
+                                                Ok(_) => {
+                                                    log(Info, ObjectHandler, format!("{} has successfully subscribe to the object of id : {:b}", client_id, request.object_id));
+                                                }
+                                                Err(error) => {
+                                                    log(Info, ObjectHandler, format!("Failed to send ACK to a RQ_ObjectRequestSubscribe to {}.\nError: {}", client_id, error));
+                                                }
+                                            }
                                         }
-                                        Err(error) => {
-                                            log(Info, ObjectHandler, format!("Failed to send ACK to a RQ_ObjectRequestSubscribe to {}.\nError: {}", client_id, error));
+                                        Err(err) => {
+                                            let flag: Vec<u8> = vec![0,0,0,1,0,0,0,0]; // was a subscribe request
+
+                                            match send_datagram(
+                                                server_socket.clone(),
+                                                &RQ_ObjectRequest_NACK::new(vec_to_u8(flag), request.object_id, "Failed to subscribe to the object due to broker error.").as_bytes(),
+                                                client_addr,
+                                                client_sender,
+                                            ).await {
+                                                Ok(_) => {
+                                                    log(Info, ObjectHandler, format!("Failed to subscribe {} to the object requested due to broker error. Successfully notify the client. Error:\n{}", client_id, err));
+                                                }
+                                                Err(error) => {
+                                                    log(Info, ObjectHandler, format!("Failed to subscribe {} to the object requested due to broker error. And fail notify the client. Object Error:\n{}\n\nSend datagram error:\n{}", client_id, err, error));
+                                                }
+                                            }
+                                            return; // Do not execute th following code
                                         }
                                     }
+
+
                                 } // End subscribe
                                 // Unsubscribe the client to all topics of this object
                                 ObjectFlags::UNSUBSCRIBE => {
@@ -787,25 +1009,44 @@ impl Client {
                                     }
 
                                     // 2 - id valid : unsubscribe the client
-                                    unsubscribe_client_to_object(
-                                        request.object_id,
+                                    match unsubscribe_client_to_object(
                                         client_id,
+                                        request.object_id,
                                         client_sender.clone()
-                                    ).await;
-
-                                    // 3 - answer the request
-                                    let flag: Vec<u8> = vec![1,0,0,1,0,0,0,0]; // was a success unsubscribe request
-                                    match send_datagram(
-                                        server_socket.clone(),
-                                        &RQ_ObjectRequestDefault_ACK::new(vec_to_u8(flag), request.object_id).as_bytes(),
-                                        client_addr,
-                                        client_sender.clone(),
                                     ).await {
                                         Ok(_) => {
-                                            log(Info, ObjectHandler, format!("{} has successfully unsubscribe to the object of id : {:b}", client_id, request.object_id));
+                                            // Client is now unsub, send him a notify
+                                            let flag: Vec<u8> = vec![1,0,0,1,0,0,0,0]; // was a success unsubscribe request
+                                            match send_datagram(
+                                                server_socket.clone(),
+                                                &RQ_ObjectRequestDefault_ACK::new(vec_to_u8(flag), request.object_id).as_bytes(),
+                                                client_addr,
+                                                client_sender.clone(),
+                                            ).await {
+                                                Ok(_) => {
+                                                    log(Info, ObjectHandler, format!("{} has successfully unsubscribe to the object of id : {:b}", client_id, request.object_id));
+                                                }
+                                                Err(error) => {
+                                                    log(Info, ObjectHandler, format!("Failed to send ACK to a RQ_ObjectRequestUnsubscribe to {}.\nError: {}", client_id, error));
+                                                }
+                                            }
                                         }
-                                        Err(error) => {
-                                            log(Info, ObjectHandler, format!("Failed to send ACK to a RQ_ObjectRequestUnsubscribe to {}.\nError: {}", client_id, error));
+                                        Err(err) => {
+                                            // failed to unsub the client, notify it
+                                            let flag: Vec<u8> = vec![0,0,0,1,0,0,0,0]; // was a success unsubscribe request
+                                            match send_datagram(
+                                                server_socket.clone(),
+                                                &RQ_ObjectRequest_NACK::new(vec_to_u8(flag), request.object_id, &*err).as_bytes(),
+                                                client_addr,
+                                                client_sender.clone(),
+                                            ).await {
+                                                Ok(_) => {
+                                                    log(Info, ObjectHandler, format!("{} has failed to unsubscribe to the object of id : {:b}.\nError:\n{}", client_id, request.object_id, err));
+                                                }
+                                                Err(error) => {
+                                                    log(Info, ObjectHandler, format!("Failed to send NACK to a RQ_ObjectRequestUnsubscribe that has failed to {}.\nUnsubscribe Error:\n{}\n\nSend datagram error:\n{}", client_id, err, error));
+                                                }
+                                            }
                                         }
                                     }
                                 } // End unsubscribe
@@ -860,8 +1101,21 @@ pub async fn heartbeat_manager(
     log(Info, HeartbeatChecker, format!("HeartbeatChecker spawned for {}", id));
     // 1 - Init local variables
     let mut missed_heartbeats: u8 = 0; // used to count how many HB are missing
-    let client_sender = {
-        CLIENTS_SENDERS_REF.read().await.get(&id).unwrap().clone()
+    let client_sender = match get_client_sender(id).await {
+        Ok(sender) => {sender}
+        Err(_) => {
+            // sender can't be found : send a shutdown for sync error
+            match server_sender.send_to(
+                &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                socket
+            ).await {
+                Err(err) => {
+                    log(Error, HeartbeatChecker, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", id, err));
+                }
+                _ => {}
+            }
+            return;
+        }
     };
 
     // Init the server status

@@ -531,6 +531,59 @@ pub fn get_bytes_from_slice(
     buffer[from..to+1].into()
 }
 
+
+/**
+ * This method is an helper to find an u64 at position
+ * in a buffer of u8
+ *
+ * @param buffer: &[u8], the source of the u64
+ * @param position: usize, the position of the first byte of the u64
+ *
+ * @return u64
+ */
+pub fn get_u64_at_pos(buffer: &[u8], position: usize) -> Result<u64, &str>
+{
+    let slice = get_bytes_from_slice(buffer, position, position+size_of::<u64>());
+    if slice.len() != 8 {
+        return Err("Slice len is invalid to convert it into an u64.")
+    }
+    Ok(u64::from_le_bytes(slice.try_into().unwrap()))
+}
+/**
+ * This method is an helper to find an u32 at position
+ * in a buffer of u8
+ *
+ * @param buffer: &[u8], the source of the u32
+ * @param position: usize, the position of the first byte of the u32
+ *
+ * @return u32
+ */
+pub fn get_u32_at_pos(buffer: &[u8], position: usize) -> Result<u32, &str>
+{
+    let slice = get_bytes_from_slice(buffer, position, position+size_of::<u32>());
+    if slice.len() != 4 {
+        return Err("Slice len is invalid to convert it into an u32.")
+    }
+    Ok(u32::from_le_bytes(slice.try_into().unwrap()))
+}
+/**
+ * This method is an helper to find an u16 at position
+ * in a buffer of u8
+ *
+ * @param buffer: &[u8], the source of the u16
+ * @param position: usize, the position of the first byte of the u16
+ *
+ * @return u16
+ */
+pub fn get_u16_at_pos(buffer: &[u8], position: usize) -> Result<u16, &str>
+{
+    let slice = get_bytes_from_slice(buffer, position, position+size_of::<u16>());
+    if slice.len() != 2 {
+        return Err("Slice len is invalid to convert it into an u16.")
+    }
+    Ok(u16::from_le_bytes(slice.try_into().unwrap()))
+}
+
 /** ==================================
 *
 *              Datagrams
@@ -555,7 +608,7 @@ impl RQ_ServerStatus {
 impl From<&[u8]> for RQ_ServerStatus {
     fn from(buffer: &[u8]) -> Self {
         RQ_ServerStatus {
-            message_type: MessageType::from(*buffer.first().unwrap()),
+            message_type: MessageType::from(buffer[0]),
         }
     }
 }
@@ -585,13 +638,19 @@ impl RQ_ServerStatus_ACK {
     }
 }
 
-impl From<&[u8]> for RQ_ServerStatus_ACK {
-    fn from(buffer: &[u8]) -> Self {
-        RQ_ServerStatus_ACK {
-            message_type: MessageType::from(*buffer.first().unwrap()),
-            status: buffer[1] != 0,
-            connected_client: u64::from_le_bytes(buffer[2..].split_at(size_of::<u64>()).0.try_into().unwrap()),
+impl<'a> TryFrom<&'a [u8]> for RQ_ServerStatus_ACK {
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a[u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 10 {
+            return Err("Payload len is to short for a RQ_ServerStatus_Ack.");
         }
+        let connected_client = get_u64_at_pos(buffer,2)?;
+        Ok(RQ_ServerStatus_ACK {
+            message_type: MessageType::from(buffer[0]),
+            status: buffer[1] != 0,
+            connected_client,
+        })
     }
 }
 
@@ -610,11 +669,16 @@ impl RQ_Connect {
     }
 }
 
-impl From<&[u8]> for RQ_Connect {
-    fn from(buffer: &[u8]) -> Self {
-        RQ_Connect {
-            message_type: MessageType::from(*buffer.first().unwrap()),
+impl<'a> TryFrom<&'a [u8]> for RQ_Connect{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 1 {
+            return Err("Payload len is to short for a RQ_Connect.");
         }
+        Ok(RQ_Connect {
+            message_type: MessageType::from(buffer[0]),
+        })
     }
 }
 
@@ -644,14 +708,22 @@ impl RQ_Connect_ACK_OK {
     }
 }
 
-impl From<&[u8]> for RQ_Connect_ACK_OK {
-    fn from(buffer: &[u8]) -> Self {
-        RQ_Connect_ACK_OK {
-            message_type: MessageType::CONNECT_ACK,
-            status: ConnectStatus::SUCCESS,
-            peer_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 2, 9).try_into().expect("Cannot get the peer_id slice from the buffer")),
-            heartbeat_period: u16::from_le_bytes(get_bytes_from_slice(buffer, 10, 11).try_into().expect("Cannot get the heartbeat_period slice from the buffer")),
+impl<'a> TryFrom<&'a [u8]> for RQ_Connect_ACK_OK{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 12 {
+            return Err("Payload len is to short for a RQ_Connect_Ack_OK.");
         }
+        let peer_id = get_u64_at_pos(buffer, 2)?;
+        let heartbeat_period = get_u16_at_pos(buffer, 10)?;
+
+        Ok(RQ_Connect_ACK_OK {
+            message_type: MessageType::from(buffer[0]),
+            status: ConnectStatus::from(buffer[1]),
+            peer_id,
+            heartbeat_period
+        })
     }
 }
 
@@ -681,15 +753,21 @@ impl RQ_Connect_ACK_ERROR {
     }
 }
 
-impl From<&[u8]> for RQ_Connect_ACK_ERROR {
-    fn from(buffer: &[u8]) -> Self {
-        let size = u16::from_le_bytes(get_bytes_from_slice(buffer, 1, 2).try_into().expect("Cannot get size from buffer."));
-        RQ_Connect_ACK_ERROR {
-            message_type: MessageType::CONNECT_ACK,
-            status: ConnectStatus::FAILURE,
+impl<'a> TryFrom<&'a [u8]> for RQ_Connect_ACK_ERROR{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 4 {
+            return Err("Payload len is to short for a RQ_Connect_Ack_Error.");
+        }
+        let size = get_u16_at_pos(buffer,1)?;
+
+        Ok(RQ_Connect_ACK_ERROR {
+            message_type: MessageType::from(buffer[0]),
+            status: ConnectStatus::from(buffer[1]),
             message_size: size,
             reason: get_bytes_from_slice(buffer, 4, (4 + size) as usize),
-        }
+        })
     }
 }
 
@@ -708,11 +786,17 @@ impl RQ_Heartbeat {
     }
 }
 
-impl From<&[u8]> for RQ_Heartbeat {
-    fn from(_buffer: &[u8]) -> Self {
-        RQ_Heartbeat {
-            message_type: MessageType::HEARTBEAT
+impl<'a> TryFrom<&'a [u8]> for RQ_Heartbeat{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 1 {
+            return Err("Payload len is to short for a RQ_Heartbeat.");
         }
+
+        Ok(RQ_Heartbeat {
+            message_type: MessageType::from(buffer[0]),
+        })
     }
 }
 
@@ -731,12 +815,17 @@ impl RQ_Heartbeat_Request {
         return [u8::from(self.message_type)].into();
     }
 }
+impl<'a> TryFrom<&'a [u8]> for RQ_Heartbeat_Request{
+    type Error = &'a str;
 
-impl From<&[u8]> for RQ_Heartbeat_Request {
-    fn from(_buffer: &[u8]) -> Self {
-        RQ_Heartbeat_Request {
-            message_type: MessageType::HEARTBEAT_REQUEST
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 1 {
+            return Err("Payload len is to short for a RQ_Heartbeat_Request.");
         }
+
+        Ok(RQ_Heartbeat_Request {
+            message_type: MessageType::from(buffer[0]),
+        })
     }
 }
 
@@ -760,12 +849,18 @@ impl RQ_Ping {
     }
 }
 
-impl From<&[u8]> for RQ_Ping {
-    fn from(buffer: &[u8]) -> Self {
-        RQ_Ping {
-            message_type: MessageType::PING,
-            ping_id: *buffer.get(1).unwrap(),
+impl<'a> TryFrom<&'a [u8]> for RQ_Ping{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 2 {
+            return Err("Payload len is to short for a RQ_Ping.");
         }
+
+        Ok(RQ_Ping {
+            message_type: MessageType::from(buffer[0]),
+            ping_id: buffer[1]
+        })
     }
 }
 
@@ -789,12 +884,18 @@ impl RQ_Pong {
     }
 }
 
-impl From<&[u8]> for RQ_Pong {
-    fn from(buffer: &[u8]) -> Self {
-        RQ_Pong {
-            message_type: MessageType::PONG,
-            ping_id: *buffer.get(1).unwrap(),
+impl<'a> TryFrom<&'a [u8]> for RQ_Pong{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 2 {
+            return Err("Payload len is to short for a RQ_Pong.");
         }
+
+        Ok(RQ_Pong {
+            message_type: MessageType::from(buffer[0]),
+            ping_id: buffer[1]
+        })
     }
 }
 
@@ -817,13 +918,18 @@ impl RQ_Shutdown {
         return bytes;
     }
 }
+impl<'a> TryFrom<&'a [u8]> for RQ_Shutdown{
+    type Error = &'a str;
 
-impl From<&[u8]> for RQ_Shutdown {
-    fn from(buffer: &[u8]) -> Self {
-        RQ_Shutdown {
-            message_type: MessageType::SHUTDOWN,
-            reason: EndConnexionReason::from(*buffer.get(1).unwrap()),
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 2 {
+            return Err("Payload len is to short for a RQ_Shutdown.");
         }
+
+        Ok(RQ_Shutdown {
+            message_type: MessageType::from(buffer[0]),
+            reason: EndConnexionReason::from(buffer[1])
+        })
     }
 }
 
@@ -847,12 +953,18 @@ impl RQ_OpenStream {
     }
 }
 
-impl From<&[u8]> for RQ_OpenStream {
-    fn from(buffer: &[u8]) -> Self {
-        RQ_OpenStream {
-            message_type: MessageType::OPEN_STREAM,
-            stream_type: StreamType::from(buffer.get(1).unwrap().clone()),
+impl<'a> TryFrom<&'a [u8]> for RQ_OpenStream{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 2 {
+            return Err("Payload len is to short for a RQ_OpenStream.");
         }
+
+        Ok(RQ_OpenStream {
+            message_type: MessageType::from(buffer[0]),
+            stream_type: StreamType::from(buffer[1])
+        })
     }
 }
 
@@ -879,14 +991,20 @@ impl RQ_TopicRequest {
     }
 }
 
-impl From<&[u8]> for RQ_TopicRequest {
-    fn from(buffer: &[u8]) -> Self {
+impl<'a> TryFrom<&'a [u8]> for RQ_TopicRequest{
+    type Error = &'a str;
 
-        RQ_TopicRequest {
-            message_type: MessageType::TOPIC_REQUEST,
-            action: TopicsAction::from(*buffer.get(1).unwrap()),
-            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer,2,9).try_into().expect("Failed to get the topic id slice from the buffer in a RQ_TopicRequest from u8")),
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 10 {
+            return Err("Payload len is to short for a RQ_TopicRequest.");
         }
+        let topic_id = get_u64_at_pos(buffer, 2)?;
+
+        Ok(RQ_TopicRequest {
+            message_type: MessageType::from(buffer[0]),
+            action: TopicsAction::from(buffer[1]),
+            topic_id
+        })
     }
 }
 
@@ -912,13 +1030,20 @@ impl RQ_TopicRequest_ACK {
     }
 }
 
-impl From<&[u8]> for RQ_TopicRequest_ACK {
-    fn from(buffer: &[u8]) -> Self {
-        RQ_TopicRequest_ACK {
-            message_type: MessageType::TOPIC_REQUEST_ACK,
-            status: TopicsResponse::from(*buffer.get(1).unwrap()),
-            topic_id: u64::from_le_bytes(get_bytes_from_slice(buffer, 2, 9).try_into().expect("Failed to get the topic id slice from the buffer a RQ_TopicRequest_ACK from u8")),
+impl<'a> TryFrom<&'a [u8]> for RQ_TopicRequest_ACK{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 10 {
+            return Err("Payload len is to short for a RQ_TopicRequest_Ack.");
         }
+        let topic_id = get_u64_at_pos(buffer, 2)?;
+
+        Ok(RQ_TopicRequest_ACK {
+            message_type: MessageType::from(buffer[0]),
+            status: TopicsResponse::from(buffer[1]),
+            topic_id
+        })
     }
 }
 
@@ -947,15 +1072,21 @@ impl RQ_TopicRequest_NACK{
     }
 }
 
-impl From<&[u8]> for RQ_TopicRequest_NACK {
-    fn from(buffer: &[u8]) -> Self {
-        let size = u16::from_le_bytes(get_bytes_from_slice(buffer, 2, 3).try_into().expect("Bad Size received a RQ_TopicRequest_NACK from u8"));
-        RQ_TopicRequest_NACK {
-            message_type: MessageType::TOPIC_REQUEST_ACK,
-            status: TopicsResponse::from(buffer.get(1).unwrap().clone()),
+impl<'a> TryFrom<&'a [u8]> for RQ_TopicRequest_NACK{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 10 {
+            return Err("Payload len is to short for a RQ_TopicRequest.");
+        }
+        let size = get_u16_at_pos(buffer, 2)?;
+
+        Ok(RQ_TopicRequest_NACK {
+            message_type: MessageType::from(buffer[0]),
+            status: TopicsResponse::from(buffer[1]),
             size,
             error_message: get_bytes_from_slice(buffer, 4, (4 + size) as usize)
-        }
+        })
     }
 }
 
@@ -986,18 +1117,24 @@ impl RQ_Data {
     }
 }
 
-impl From<&[u8]> for RQ_Data {
-    fn from(buffer: &[u8]) -> Self {
-        let size = u16::from_le_bytes(buffer[1..].split_at(size_of::<u16>()).0.try_into().unwrap());
-        let data_end = 15 + size as usize;
+impl<'a> TryFrom<&'a [u8]> for RQ_Data{
+    type Error = &'a str;
 
-        RQ_Data {
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 15 {
+            return Err("Payload len is to short for a RQ_Data.");
+        }
+        let size = get_u16_at_pos(buffer, 1)?;
+        let sequence_number = get_u32_at_pos(buffer, 3)?;
+        let topic_id = get_u64_at_pos(buffer, 7)?;
+
+        Ok(RQ_Data {
             message_type: MessageType::DATA,
             size,
-            sequence_number: u32::from_le_bytes(buffer[3..].split_at(size_of::<u32>()).0.try_into().unwrap()),
-            topic_id: u64::from_le_bytes(buffer[7..].split_at(size_of::<u64>()).0.try_into().unwrap()),
-            data: buffer[15..data_end].into(),
-        }
+            sequence_number,
+            topic_id,
+            data: buffer[15..15+size as usize].into(),
+        })
     }
 }
 
@@ -1040,9 +1177,15 @@ impl RQ_ObjectRequest {
     }
 }
 
-impl From<&[u8]> for RQ_ObjectRequest {
-    fn from(buffer: &[u8]) -> Self {
-        let size = u16::from_le_bytes(buffer[1..].split_at(size_of::<u16>()).0.try_into().unwrap());
+impl<'a> TryFrom<&'a [u8]> for RQ_ObjectRequest{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 12 {
+            return Err("Payload len is to short for a RQ_ObjectRequest.");
+        }
+        let size = get_u16_at_pos(buffer, 1)?;
+
         let mut topics: HashSet<u64>;
         if size != 0 {
             topics = get_bytes_from_slice(buffer, 12, (size as usize + 12))
@@ -1055,13 +1198,16 @@ impl From<&[u8]> for RQ_ObjectRequest {
         }else{
             topics = HashSet::default();
         }
-        RQ_ObjectRequest {
-            message_type: MessageType::OBJECT_REQUEST,
+
+        let object_id = get_u64_at_pos(buffer,4)?;
+
+        Ok(RQ_ObjectRequest {
+            message_type: MessageType::from(buffer[0]),
             size,
             flags: ObjectFlags::from(buffer[3]),
-            object_id: u64::from_le_bytes(buffer[4..].split_at(size_of::<u64>()).0.try_into().unwrap()),
+            object_id,
             topics,
-        }
+        })
     }
 }
 
@@ -1094,14 +1240,22 @@ impl RQ_ObjectRequestCreate_ACK {
     }
 }
 
-impl From<&[u8]> for RQ_ObjectRequestCreate_ACK {
-    fn from(buffer: &[u8]) -> Self {
-        RQ_ObjectRequestCreate_ACK {
-            message_type: MessageType::OBJECT_REQUEST_ACK,
-            flags: buffer[1],
-            old_object_id: u64::from_le_bytes(buffer[2..].split_at(size_of::<u64>()).0.try_into().unwrap()),
-            final_object_id: u64::from_le_bytes(buffer[10..].split_at(size_of::<u64>()).0.try_into().unwrap()),
+impl<'a> TryFrom<&'a [u8]> for RQ_ObjectRequestCreate_ACK{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 18 {
+            return Err("Payload len is to short for a RQ_ObjectRequestCreate_ACK.");
         }
+        let old_object_id = get_u64_at_pos(buffer,2)?;
+        let final_object_id = get_u64_at_pos(buffer,10)?;
+
+        Ok(RQ_ObjectRequestCreate_ACK {
+            message_type: MessageType::from(buffer[0]),
+            flags: buffer[1],
+            old_object_id,
+            final_object_id,
+        })
     }
 }
 
@@ -1122,7 +1276,7 @@ impl RQ_ObjectRequestDefault_ACK {
 
     pub fn as_bytes(&self) -> Vec<u8>
     {
-        let mut bytes: Vec<u8> = Vec::with_capacity(18);
+        let mut bytes: Vec<u8> = Vec::with_capacity(10);
         bytes.push(u8::from(self.message_type));
         bytes.push(u8::from(self.flags));
         bytes.extend(self.object_id.to_le_bytes());
@@ -1131,18 +1285,22 @@ impl RQ_ObjectRequestDefault_ACK {
     }
 }
 
-impl From<&[u8]> for RQ_ObjectRequestDefault_ACK {
-    fn from(buffer: &[u8]) -> Self {
-        RQ_ObjectRequestDefault_ACK {
-            message_type: MessageType::OBJECT_REQUEST_ACK,
-            flags: buffer[1],
-            object_id: u64::from_le_bytes(buffer[2..].split_at(size_of::<u64>()).0.try_into().unwrap()),
+impl<'a> TryFrom<&'a [u8]> for RQ_ObjectRequestDefault_ACK{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 10 {
+            return Err("Payload len is to short for a RQ_ObjectRequestDefault_ACK.");
         }
+        let object_id = get_u64_at_pos(buffer,2)?;
+
+        Ok(RQ_ObjectRequestDefault_ACK {
+            message_type: MessageType::from(buffer[0]),
+            flags: buffer[1],
+            object_id,
+        })
     }
 }
-
-
-
 
 // ===== Sent in case of error for all action (Create update delete)
 pub struct RQ_ObjectRequest_NACK{
@@ -1177,15 +1335,22 @@ impl RQ_ObjectRequest_NACK {
     }
 }
 
-impl From<&[u8]> for RQ_ObjectRequest_NACK {
-    fn from(buffer: &[u8]) -> Self {
-        let size: Size = u16::from_le_bytes(buffer[10..].split_at(size_of::<u16>()).0.try_into().unwrap());
-        RQ_ObjectRequest_NACK {
-            message_type: MessageType::OBJECT_REQUEST_NACK,
+impl<'a> TryFrom<&'a [u8]> for RQ_ObjectRequest_NACK{
+    type Error = &'a str;
+
+    fn try_from(buffer: &'a [u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 12 {
+            return Err("Payload len is to short for a RQ_ObjectRequest_NACK.");
+        }
+        let size = get_u16_at_pos(buffer,10)?;
+        let object_id = get_u64_at_pos(buffer,2)?;
+
+        Ok(RQ_ObjectRequest_NACK {
+            message_type: MessageType::from(buffer[0]),
             flags: buffer[1],
-            object_id: u64::from_le_bytes(buffer[2..].split_at(size_of::<u64>()).0.try_into().unwrap()),
+            object_id,
             reason_size: size,
             reason: get_bytes_from_slice(buffer, 12, (size + 12) as usize)
-        }
+        })
     }
 }

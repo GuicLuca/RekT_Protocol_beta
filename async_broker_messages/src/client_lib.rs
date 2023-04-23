@@ -3,16 +3,17 @@
 // date : 22/03/2023
 
 use std::collections::HashSet;
+use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{oneshot};
 
 use crate::client_lib::ClientActions::{AddSubscribedObject, AddSubscribedTopic, Get, RemoveSubscribedObject, RemoveSubscribedTopic};
-use crate::{CONFIG, OBJECT_SUBSCRIBERS_REF, OBJECTS_TOPICS_REF};
-use crate::config::LogLevel::{Info};
+use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CONFIG, OBJECT_SUBSCRIBERS_REF, OBJECTS_TOPICS_REF};
+use crate::config::LogLevel::{Error, Info};
 use crate::datagram::ObjectIdentifierType;
-use crate::server_lib::log;
-use crate::server_lib::LogSource::ClientManager;
+use crate::server_lib::{log, try_remove_client_from_set};
+use crate::server_lib::LogSource::{ClientManager, HeartbeatChecker, ObjectHandler, Other};
 use crate::types::{ClientId, ClientSender, ObjectId, PingId, Responder, ServerSocket, TopicId};
 
 
@@ -77,10 +78,16 @@ pub enum ClientActions {
  */
 pub fn now_ms() -> u128
 {
-    return SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis(); // Current time in ms
+    match SystemTime::now().duration_since(UNIX_EPOCH){
+        Ok(dur) => {
+            // return the duration as millisecond
+            dur.as_millis()
+        }
+        Err(err) => {
+            log(Error, Other, format!("Failed to get duration since UNIX_EPOCH in now_ms. Error:\n{}", err));
+            0 // return a default value to let the flow continuing
+        }
+    }
 }
 
 /**
@@ -96,10 +103,7 @@ pub async fn client_has_sent_life_sign(
 ) -> bool
 {
     // 1 - Get the current time
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
+    let now = now_ms();
 
     // 2 - Spawn a channel and get the
     // last_request_from_client by using the command
@@ -110,17 +114,34 @@ pub async fn client_has_sent_life_sign(
     };
     match client_sender.send(cmd).await {
         Ok(_)=>{}
-        Err(_)=> {
+        Err(err)=> {
+            log(Error, HeartbeatChecker, format!("Failed to send a Get command to a a struct in method \"client_has_sent_life_sign\". Error:\n{}", err));
             return false;
         }
     }
     // 3 - wait for the response
-    let last_client_request = rx.await.unwrap().unwrap();
+    let last_client_request = match rx.await {
+        Ok(result) => {
+            match result {
+                Ok(result) => {
+                    result
+                }
+                Err(err) => {
+                    log(Error, HeartbeatChecker, format!("Failed to Get last_request_from_client in method \"client_has_sent_life_sign\". Error:\n{}", err));
+                    0 // return a default value to let the flow continuing
+                }
+            }
+        }
+        Err(err) => {
+            log(Error, HeartbeatChecker, format!("Failed to receive the result of a Get command in method \"client_has_sent_life_sign\". Error:\n{}", err));
+            0 // return a default value to let the flow continuing
+        }
+    };
 
     // 4 - Compute the last time the client should have sent life signe.
     // = now - Heartbeat_period (in ms)
     let should_have_give_life_sign = now - (CONFIG.heart_beat_period*1000 ) as u128;
-    log(Info, ClientManager, format!("Calcul du temps : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign));
+    log(Info, ClientManager, format!("Computing round-trip time : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign));
     // return true if the last request is sooner than the current time minus the heartbeat_period
     return last_client_request >= should_have_give_life_sign;
 }
@@ -175,7 +196,19 @@ pub fn get_object_id_type(id: ObjectId) -> ObjectIdentifierType {
  */
 pub fn generate_object_id(id_type: ObjectIdentifierType) -> ObjectId {
     // 1 - Get the current time
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Failed to get system time").as_nanos() as u64;
+    let now = match SystemTime::now().duration_since(UNIX_EPOCH){
+        Ok(dur) => {
+            // return the duration as millisecond
+            dur.as_nanos() as u64
+        }
+        Err(err) => {
+            log(Error, ObjectHandler, format!("Failed to get duration since UNIX_EPOCH in \"generate_object_id\". Error:\n{}", err));
+            0 // return a default value to let the flow continuing
+        }
+    };
+
+
+
     let u64_with_msb_00 = now & 0x3FFFFFFFFFFFFFFF; // the mask allow to set two MSB to 00 to rewrite them after
     // 2 - set é MSB according to the type
     match id_type {
@@ -200,16 +233,25 @@ pub fn generate_object_id(id_type: ObjectIdentifierType) -> ObjectId {
  * @param object_id: ObjectId, The object identifier
  * @param client_id: ClientId, The client identifier
  * @param client_sender: ClientSender, The client sender used to send command through
+ *
+ * @return Result<(), String>
  */
-pub async fn subscribe_client_to_object(
+pub async fn subscribe_client_to_object<'a>(
     object_id: ObjectId,
     client_id: ClientId,
     client_sender: ClientSender,
-)
+) -> Result<(), String>
 {
 
     let topics = {
-        OBJECTS_TOPICS_REF.read().await.get(&object_id).unwrap().clone()
+        match OBJECTS_TOPICS_REF.read().await.get(&object_id) {
+            None => {
+                return Err(format!("Can't find the object id {} in OBJECTS_TOPICS_REF.", object_id));
+            }
+            Some(topics) => {
+                topics.clone()
+            }
+        }
     };
 
     // 1 - add topics to the client
@@ -220,7 +262,8 @@ pub async fn subscribe_client_to_object(
     tokio::spawn(async move {
         match cmd_sender.send(cmd).await {
             Ok(_) => {}
-            Err(_) => {
+            Err(err) => {
+                log(Error, ObjectHandler, format!("Failed to send AddSubscribedTopic command in method \"subscribe_client_to_object\". Error:\n{}", err));
                 return;
             }
         };
@@ -233,7 +276,8 @@ pub async fn subscribe_client_to_object(
     tokio::spawn(async move {
         match client_sender.send(cmd).await {
             Ok(_) => {}
-            Err(_) => {
+            Err(err) => {
+                log(Error, ObjectHandler, format!("Failed to send AddSubscribedObject command in method \"subscribe_client_to_object\". Error:\n{}", err));
                 return;
             }
         };
@@ -250,6 +294,8 @@ pub async fn subscribe_client_to_object(
             });
         subscribers_set.insert(client_id);
     }
+    // Method has successfully ran
+    Ok(())
 }
 
 /**
@@ -260,27 +306,37 @@ pub async fn subscribe_client_to_object(
  * @param object_id: ObjectId, The object identifier
  * @param client_id: ClientId, The client identifier
  * @param client_sender: ClientSender, The client sender used to send command through
+ *
+ * @return Result<(), String>
  */
 pub async fn unsubscribe_client_to_object(
     client_id: ClientId,
     object_id: ObjectId,
     client_sender: ClientSender
-)
+)-> Result<(), String>
 {
     // 1 - Get client and object information
     let topics = {
-        OBJECTS_TOPICS_REF.read().await.get(&object_id).unwrap().clone()
+        match OBJECTS_TOPICS_REF.read().await.get(&object_id) {
+            None => {
+                return Err(format!("Can't find the object id {} in OBJECTS_TOPICS_REF.", object_id));
+            }
+            Some(topics) => {
+                topics.clone()
+            }
+        }
     };
 
     // 2 - remove topics from the client struct
     let cmd = RemoveSubscribedTopic {
-        topic_ids: topics.clone().into_iter().collect() // transform the hashset into Vec
+        topic_ids: topics.into_iter().collect() // transform the hashset into Vec
     };
     let cmd_sender = client_sender.clone();
     tokio::spawn(async move {
         match cmd_sender.send(cmd).await {
             Ok(_) => {}
-            Err(_) => {
+            Err(err) => {
+                log(Error, ObjectHandler, format!("Failed to send RemoveSubscribedTopic command in method \"unsubscribe_client_to_object\". Error:\n{}", err));
                 return;
             }
         };
@@ -294,7 +350,8 @@ pub async fn unsubscribe_client_to_object(
     tokio::spawn(async move {
         match client_sender.send(cmd).await {
             Ok(_) => {}
-            Err(_) => {
+            Err(err) => {
+                log(Error, ObjectHandler, format!("Failed to send RemoveSubscribedObject command in method \"unsubscribe_client_to_object\". Error:\n{}", err));
                 return;
             }
         };
@@ -307,6 +364,8 @@ pub async fn unsubscribe_client_to_object(
             subscribers.remove(&client_id);
         });
     }
+
+    Ok(()) // method has successfully ran
 }
 
 /**
@@ -342,4 +401,47 @@ pub fn diff_hashsets(new_set: &HashSet<TopicId>, current_set: &HashSet<TopicId>)
     let added_values = new_set.difference(current_set).cloned().collect();
     let removed_values = current_set.difference(new_set).cloned().collect();
     (added_values, removed_values)
+}
+
+
+/**
+ *  This method is an helper to get a client sender
+ * from a client id.
+ *
+ * @return Result<ClientSender, ()>
+ */
+pub async fn get_client_sender(client_id: ClientId) -> Result<ClientSender, ()>
+{
+    let map = CLIENTS_SENDERS_REF.read().await;
+    match map.get(&client_id) {
+        None => {
+            log(Error, Other, format!("Can't find client sender from the client id {}", client_id));
+            try_remove_client_from_set(client_id).await;
+            Err(())
+        }
+        Some(value) => {
+            Ok(value.clone())
+        }
+    }
+}
+
+/**
+ *  This method is an helper to get a client address
+ * from a client id.
+ *
+ * @return Result<SocketAddr, ()>
+ */
+pub async fn get_client_addr(client_id: ClientId) -> Result<SocketAddr, ()>
+{
+    let map = CLIENTS_ADDRESSES_REF.read().await;
+    match map.get(&client_id) {
+        None => {
+            log(Error, Other, format!("Can't find client address from the client id {}", client_id));
+            try_remove_client_from_set(client_id).await;
+            Err(())
+        }
+        Some(value) => {
+            Ok(value.clone())
+        }
+    }
 }

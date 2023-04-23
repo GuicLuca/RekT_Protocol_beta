@@ -4,7 +4,7 @@
 // date : 14/03/2023
 
 use std::fs;
-use std::io::Error as IoError;
+use std::io::Error;
 use serde::{Deserialize, Serialize};
 use toml;
 
@@ -83,10 +83,13 @@ impl Config {
         let mut content: String = "".to_owned();
 
         for filepath in config_filepath {
-            let result: Result<String, IoError> = fs::read_to_string(filepath);
+            let result: Result<String, Error> = fs::read_to_string(filepath);
 
             if result.is_ok() {
-                content = result.unwrap();
+                content = result.unwrap_or_else(|err|{
+                    println!("Failed to unwrap content string. Error:\n{}", err);
+                    "".to_owned() // return default value
+                });
                 break;
             }
         }
@@ -109,10 +112,18 @@ impl Config {
         // 4.1 - Server variables
         let port: u16 = match config_toml.server {
             Some(server) => {
-                let port: u16 = server.port.unwrap_or_else(|| {
+                let port: u16 =  match server.port.unwrap_or_else(|| {
                     println!("Missing field port in table server.");
                     "unknown".to_owned()
-                }).parse().unwrap();
+                }).parse::<u16>() {
+                    Ok(value) => {
+                        value
+                    }
+                    Err(err) => {
+                        println!("Failed to parse port into a u16. Error:\n{}", err);
+                        3838 // return default value
+                    }
+                };
 
                 port
             }

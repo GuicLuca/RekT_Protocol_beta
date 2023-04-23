@@ -11,7 +11,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration};
 
 use local_ip_address::local_ip;
 use tokio::{join, net::UdpSocket};
@@ -20,7 +20,7 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 use crate::client::Client;
-use crate::client_lib::{ClientActions, now_ms};
+use crate::client_lib::{ClientActions, get_client_addr, get_client_sender, now_ms};
 use crate::client_lib::ClientActions::{HandleData, HandleDisconnect, HandleObjectRequest, HandlePong, HandleTopicRequest, StartManagers, UpdateClientLastRequest};
 use crate::config::Config;
 use crate::config::LogLevel::*;
@@ -250,9 +250,21 @@ async fn datagrams_handler(
                                     map_addr.insert(uuid, src);
                                 }
                             }
-                            let sender = {
-                                let map = CLIENTS_SENDERS_REF.read().await;
-                                map.get(&uuid).unwrap().clone()
+                            let sender = match get_client_sender(uuid).await {
+                                Ok(sender) => {sender}
+                                Err(_) => {
+                                    // sender can't be found : send a shutdwown for sync error
+                                    match socket_ref.send_to(
+                                        &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                                        src
+                                    ).await {
+                                        Err(err) => {
+                                            log(Error, DatagramsHandler, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", uuid, err));
+                                        }
+                                        _ => {}
+                                    }
+                                    return;
+                                }
                             };
                             let datagram = &RQ_Connect_ACK_OK::new(uuid, CONFIG.heart_beat_period).as_bytes();
                             result = send_datagram(socket_ref.clone(), datagram, src, sender.clone()).await;
@@ -274,12 +286,19 @@ async fn datagrams_handler(
                                 });
 
                                 // init his ping with this request:
-                                send_datagram(
+                                match send_datagram(
                                     socket_ref,
                                     &RQ_Ping::new(get_new_ping_reference().await).as_bytes(),
                                     src,
                                     sender.clone(),
-                                ).await.unwrap();
+                                ).await {
+                                    Ok(bytes) => {
+                                        log(Info, DatagramsHandler, format!("Send {} bytes (RQ_Ping) to {}", bytes, src.ip()));
+                                    }
+                                    Err(error) => {
+                                        log(Error, DatagramsHandler, format!("Failed to send first Ping_request to {}.\nError: {}", src.ip(), error));
+                                    }
+                                }
                             } // End if
                             match result {
                                 Ok(bytes) => {
@@ -299,9 +318,21 @@ async fn datagrams_handler(
                             sender: receiver.clone(),
                             buffer: buf,
                         };
-                        let client_sender = {
-                            let map = CLIENTS_SENDERS_REF.read().await;
-                            map.get(&client_id).unwrap().clone()
+                        let client_sender = match get_client_sender(client_id).await {
+                            Ok(sender) => {sender}
+                            Err(_) => {
+                                // sender can't be found : send a shutdwown for sync error
+                                match receiver.send_to(
+                                    &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                                    src
+                                ).await {
+                                    Err(err) => {
+                                        log(Error, DatagramsHandler, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", client_id, err));
+                                    }
+                                    _ => {}
+                                }
+                                return;
+                            }
                         };
                         match client_sender.send(cmd).await {
                             Ok(_) => {}
@@ -320,9 +351,21 @@ async fn datagrams_handler(
 
                         let cmd = HandleDisconnect {};
 
-                        let client_sender = {
-                            let map = CLIENTS_SENDERS_REF.read().await;
-                            map.get(&client_id).unwrap().clone()
+                        let client_sender = match get_client_sender(client_id).await {
+                            Ok(sender) => {sender}
+                            Err(_) => {
+                                // sender can't be found : send a shutdwown for sync error
+                                match receiver.send_to(
+                                    &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                                    src
+                                ).await {
+                                    Err(err) => {
+                                        log(Error, DatagramsHandler, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", client_id, err));
+                                    }
+                                    _ => {}
+                                }
+                                return;
+                            }
                         };
                         tokio::spawn(async move {
                             match client_sender.send(cmd).await {
@@ -340,9 +383,21 @@ async fn datagrams_handler(
                     MessageType::OBJECT_REQUEST => {
                         // 4.6 - A user is trying to request an object
                         log(Info, DatagramsHandler, format!("{} is trying to request an object", client_id));
-                        let client_sender = {
-                            let map = CLIENTS_SENDERS_REF.read().await;
-                            map.get(&client_id).unwrap().clone()
+                        let client_sender = match get_client_sender(client_id).await {
+                            Ok(sender) => {sender}
+                            Err(_) => {
+                                // sender can't be found : send a shutdwown for sync error
+                                match receiver.send_to(
+                                    &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                                    src
+                                ).await {
+                                    Err(err) => {
+                                        log(Error, DatagramsHandler, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", client_id, err));
+                                    }
+                                    _ => {}
+                                }
+                                return;
+                            }
                         };
                         let cmd = HandleObjectRequest {
                             server_socket: receiver.clone(),
@@ -362,9 +417,21 @@ async fn datagrams_handler(
                         // 4.7 - A user is trying to request a new topic
                         log(Info, DatagramsHandler, format!("{} is trying to request a new topic", client_id));
 
-                        let client_sender = {
-                            let map = CLIENTS_SENDERS_REF.read().await;
-                            map.get(&client_id).unwrap().clone()
+                        let client_sender = match get_client_sender(client_id).await {
+                            Ok(sender) => {sender}
+                            Err(_) => {
+                                // sender can't be found : send a shutdwown for sync error
+                                match receiver.send_to(
+                                    &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                                    src
+                                ).await {
+                                    Err(err) => {
+                                        log(Error, DatagramsHandler, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", client_id, err));
+                                    }
+                                    _ => {}
+                                }
+                                return;
+                            }
                         };
                         let cmd = HandleTopicRequest {
                             server_socket: receiver.clone(),
@@ -384,10 +451,7 @@ async fn datagrams_handler(
                     MessageType::PONG => {
                         // 4.8 - A user is trying to answer a ping request
                         log(Info, DatagramsHandler, format!("{} is trying to answer a ping request", client_id));
-                        let time = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis(); // Current time in ms
+                        let time = now_ms();
 
                         // If the client is offline, don't compute the request
                         if !is_online(client_id).await { continue; };
@@ -397,9 +461,24 @@ async fn datagrams_handler(
                             current_time: time,
                         };
                         // send the command :
-                        let clients_ref = CLIENTS_SENDERS_REF.clone();
+                        let client_sender = match get_client_sender(client_id).await {
+                            Ok(sender) => {sender}
+                            Err(_) => {
+                                // sender can't be found : send a shutdwown for sync error
+                                match receiver.send_to(
+                                    &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                                    src
+                                ).await {
+                                    Err(err) => {
+                                        log(Error, DatagramsHandler, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", client_id, err));
+                                    }
+                                    _ => {}
+                                }
+                                return;
+                            }
+                        };
                         tokio::spawn(async move {
-                            match clients_ref.read().await.get(&client_id).unwrap().send(cmd).await {
+                            match client_sender.send(cmd).await {
                                 Ok(_) => {}
                                 Err(_) => {
                                     return;
@@ -417,22 +496,49 @@ async fn datagrams_handler(
                         if client_id == 0 {
                             log(Info, DatagramsHandler, format!("Received SERVER_STATUS packet from {}", src.ip()));
                             // not connected : send the datagram manually to the source
-                            receiver.send_to(
+                            match receiver.send_to(
                                 &RQ_ServerStatus_ACK::new(server_is_running, connected_clients as u64).as_bytes(),
                                 src
-                            ).await.unwrap();
+                            ).await{
+                                Ok(bytes) => {
+                                    log(Info, DatagramsHandler, format!("Send {} bytes (ServerStatus_ACK) to {}", bytes, src.ip()));
+                                }
+                                Err(error) => {
+                                    log(Error, DatagramsHandler, format!("Failed to send ServerStatus_ACK request to {}. Error:\n{}", src.ip(), error));
+                                }
+                            }
                         }else{
                             log(Info, DatagramsHandler, format!("Received SERVER_STATUS packet from {}", client_id));
                             // Connected : send the response with the method to update client life signe timestamp
-                            let client_sender = {
-                                CLIENTS_SENDERS_REF.read().await.get(&client_id).unwrap().clone()
+                            let client_sender = match get_client_sender(client_id).await {
+                                Ok(sender) => {sender}
+                                Err(_) => {
+                                    // sender can't be found : send a shutdwown for sync error
+                                    match receiver.send_to(
+                                        &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                                        src
+                                    ).await {
+                                        Err(err) => {
+                                            log(Error, DatagramsHandler, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", client_id, err));
+                                        }
+                                        _ => {}
+                                    }
+                                    return;
+                                }
                             };
-                            send_datagram(
+                            match send_datagram(
                                 receiver.clone(),
                                 &RQ_ServerStatus_ACK::new(server_is_running, connected_clients as u64).as_bytes(),
                                 src,
                                 client_sender,
-                            ).await.unwrap();
+                            ).await {
+                                Ok(bytes) => {
+                                    log(Info, DatagramsHandler, format!("Send {} bytes (Server_status_ACK) to {}", bytes, client_id));
+                                }
+                                Err(error) => {
+                                    log(Error, DatagramsHandler, format!("Failed to send Server_Status_ACK request to {}. Error:\n{}", client_id, error));
+                                }
+                            }
                         }
                     }
                     MessageType::SERVER_STATUS_ACK | MessageType::TOPIC_REQUEST_ACK | MessageType::OBJECT_REQUEST_ACK | MessageType::CONNECT_ACK | MessageType::HEARTBEAT_REQUEST | MessageType::PING | MessageType::TOPIC_REQUEST_NACK | MessageType::OBJECT_REQUEST_NACK => {
@@ -479,13 +585,29 @@ async fn ping_sender(
         };
 
         for client_id in ids {
-            let client_sender = {
-                let map = CLIENTS_SENDERS_REF.read().await;
-                map.get(&client_id).unwrap().clone()
+            let client_addr = match get_client_addr(client_id).await {
+                Ok(value) => {value}
+                Err(_) => {
+                    // Can't find client address : disconnect the client
+                    log(Error, PingSender, format!("Can't find client address. Disconnect the client but can't send Shutdown error."));
+                    return;
+                }
             };
-            let client_addr = {
-                let map = CLIENTS_ADDRESSES_REF.read().await;
-                map.get(&client_id).unwrap().clone()
+            let client_sender = match get_client_sender(client_id).await {
+                Ok(sender) => {sender}
+                Err(_) => {
+                    // sender can't be found : send a shutdwown for sync error
+                    match sender.send_to(
+                        &RQ_Shutdown::new(SYNC_ERROR).as_bytes(),
+                        client_addr
+                    ).await {
+                        Err(err) => {
+                            log(Error, PingSender, format!("Failed to send connexion error to {}. The client has common hashset sync issue. Error:\n{}", client_id, err));
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
             };
 
             // 2 - Send a ping request to the client
@@ -499,7 +621,7 @@ async fn ping_sender(
                     log(Info, PingSender, format!("Send {} bytes to {}", bytes, client_id));
                 }
                 Err(error) => {
-                    log(Error, PingSender, format!("Failed to send ping request to {}.\n{}", client_id, error));
+                    log(Error, PingSender, format!("Failed to send ping request to {}. Error:\n{}", client_id, error));
                 }
             }
         } // end for
