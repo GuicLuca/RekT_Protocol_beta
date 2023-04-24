@@ -101,7 +101,7 @@ impl Client {
 
     pub async fn wait_xd(&mut self) {
         let mut sequence_number = 0;
-        self.create_topic_test();
+        /*self.create_topic_test();
         let random_msg: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(1000)
@@ -128,7 +128,7 @@ impl Client {
 
         self.socket.send(
             &RQ_ObjectRequest::new(ObjectFlags::CREATE, generate_object_id(ObjectIdentifierType::USER_GENERATED),topics).as_bytes()
-        ).await;
+        ).await;*/
 
         loop {
             let mut buffer = [0; 1024];
@@ -163,7 +163,7 @@ impl Client {
                         }
                         MessageType::TOPIC_REQUEST_ACK =>{
                             println!("[Client - topic ack] RECIEVE A TOPIC REQUEST ACK     ___     server({})", src.ip());
-                            if(TopicsResponse::from(buffer[1]) == TopicsResponse::SUCCESS_SUB){
+                            /*if(TopicsResponse::from(buffer[1]) == TopicsResponse::SUCCESS_SUB){
                                 println!("{:?}", buffer);
                                 self.topic_id = RQ_TopicRequest_ACK::from(buffer.as_ref()).topic_id;
 
@@ -392,7 +392,7 @@ impl Client {
                                         sequence_number +=1;
                                     }
                                 });
-                            }
+                            }*/
                         }
                         MessageType::SERVER_STATUS | MessageType::TOPIC_REQUEST_NACK | MessageType::CONNECT_ACK | MessageType::PONG => {}
                         MessageType::UNKNOWN => {
