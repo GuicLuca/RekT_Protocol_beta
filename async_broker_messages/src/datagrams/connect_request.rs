@@ -2,7 +2,7 @@
 use crate::enums::connect_status::ConnectStatus;
 use crate::enums::message_type::MessageType;
 use crate::libs::common::{get_bytes_from_slice, get_u16_at_pos, get_u64_at_pos};
-use crate::types::Size;
+use crate::libs::types::Size;
 
 //===== Sent to connect to a peer to the server
 pub struct RQ_Connect {

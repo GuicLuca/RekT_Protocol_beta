@@ -3,92 +3,21 @@
 // date : 22/03/2023
 
 use std::collections::HashSet;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::{SystemTime, UNIX_EPOCH};
+use rand::Rng;
 
 use tokio::sync::{oneshot};
+use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CLIENTS_STRUCTS_REF, CONFIG, OBJECT_SUBSCRIBERS_REF, OBJECTS_TOPICS_REF, TOPICS_SUBSCRIBERS_REF};
 
-use crate::client_lib::ClientActions::{AddSubscribedObject, AddSubscribedTopic, Get, RemoveSubscribedObject, RemoveSubscribedTopic};
-use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CONFIG, OBJECT_SUBSCRIBERS_REF, OBJECTS_TOPICS_REF};
+use crate::enums::client_actions::ClientActions::{AddSubscribedObject, AddSubscribedTopic, Get, RemoveSubscribedObject, RemoveSubscribedTopic};
 use crate::enums::log_level::LogLevel::{Error, Info};
-use crate::enums::object_identifier_type::ObjectIdentifierType;
-use crate::server_lib::{log, try_remove_client_from_set};
-use crate::server_lib::LogSource::{ClientManager, HeartbeatChecker, ObjectHandler, Other};
-use crate::types::{ClientId, ClientSender, ObjectId, PingId, Responder, ServerSocket, TopicId};
+use crate::enums::log_source::LogSource::{HeartbeatChecker, ObjectHandler, Other};
+use crate::libs::common::{log, now_ms};
+use crate::libs::types::{ClientId, ClientSender, ObjectId};
 
 
-/**
- * The ClientActions enum contain each action a user can do.
- * It will be used by the server task to ask the client struct
- * to execute something.
- */
-#[derive(Debug)]
-pub enum ClientActions {
-    Get {
-        key: String,
-        resp: Responder<u128>,
-    },
-    HandleData {
-        sender: ServerSocket,
-        buffer: [u8; 1024],
-    },
-    AddSubscribedTopic{
-        topic_ids: Vec<TopicId>
-    },
-    RemoveSubscribedTopic{
-        topic_ids: Vec<TopicId>
-    },
-    AddSubscribedObject{
-        object_id: ObjectId
-    },
-    RemoveSubscribedObject{
-        object_id: ObjectId
-    },
-    StartManagers{
-        server_sender: ServerSocket
-    },
-    UpdateServerLastRequest{
-        time: u128
-    },
-    UpdateClientLastRequest{
-        time: u128
-    },
-    HandlePong {
-        ping_id: PingId, // The ping request that is answered
-        current_time: u128, // Server time when the request has been received
-    },
-    HandleTopicRequest{
-        server_socket: ServerSocket,
-        buffer: [u8; 1024],
-        client_sender: ClientSender
-    },
-    HandleDisconnect{
-    },
-    HandleObjectRequest{
-        buffer: [u8; 1024],
-        server_socket: ServerSocket,
-        client_sender: ClientSender,
-    }
-}
 
-/**
- * Return the local time since the UNIX_EPOCH in ms
- *
- * @return u128, the current time in ms
- */
-pub fn now_ms() -> u128
-{
-    match SystemTime::now().duration_since(UNIX_EPOCH){
-        Ok(dur) => {
-            // return the duration as millisecond
-            dur.as_millis()
-        }
-        Err(err) => {
-            log(Error, Other, format!("Failed to get duration since UNIX_EPOCH in now_ms. Error:\n{}", err));
-            0 // return a default value to let the flow continuing
-        }
-    }
-}
 
 /**
  * This method check if the client has sent a life
@@ -141,88 +70,9 @@ pub async fn client_has_sent_life_sign(
     // 4 - Compute the last time the client should have sent life signe.
     // = now - Heartbeat_period (in ms)
     let should_have_give_life_sign = now - (CONFIG.heart_beat_period*1000 ) as u128;
-    log(Info, ClientManager, format!("Computing round-trip time : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign));
+    log(Info, HeartbeatChecker, format!("Computing round-trip time : {} > {} = {}", last_client_request, should_have_give_life_sign, last_client_request >= should_have_give_life_sign));
     // return true if the last request is sooner than the current time minus the heartbeat_period
     return last_client_request >= should_have_give_life_sign;
-}
-
-/**
- * This method return the u8 image of the
- * given bitfields. The bitfield must be in LE endian
- *
- * @param bitfields: Vec<u8>
- *
- * @return u8
- */
-pub fn vec_to_u8(bitfield: Vec<u8>) -> u8{
-    (bitfield[0] << 7) | (bitfield[1] << 6) | (bitfield[2] << 5) | (bitfield[3] << 4) | (bitfield[4] << 3) | (bitfield[5] << 2) | (bitfield[6] << 1) | (bitfield[7] << 0)
-}
-
-/**
- * This method return the type of the
- * object id according to the two MSB
- *
- * @param id: ObjectId
- *
- * @return ObjectIdentifierType
- */
-pub fn get_object_id_type(id: ObjectId) -> ObjectIdentifierType {
-    // Use bitwise operator to get two MSB ->|XX______|
-    let msb = (id >> 62) & 0b11;
-    match msb {
-        0b00 => {
-            ObjectIdentifierType::USER_GENERATED
-        }
-        0b01 => {
-            ObjectIdentifierType::BROKER_GENERATED
-        }
-        0b10 => {
-            ObjectIdentifierType::TEMPORARY
-        }
-        _ => {
-            ObjectIdentifierType::UNKNOWN
-        }
-    }
-}
-
-/**
- * This method generate a new object id and set
- * the two MSB according to the type needed.
- * /!\ Unknown type is not allow and will return 0.
- *
- * @param id_type: ObjectIdentifierType
- *
- * @return ObjectId or 0
- */
-pub fn generate_object_id(id_type: ObjectIdentifierType) -> ObjectId {
-    // 1 - Get the current time
-    let now = match SystemTime::now().duration_since(UNIX_EPOCH){
-        Ok(dur) => {
-            // return the duration as millisecond
-            dur.as_nanos() as u64
-        }
-        Err(err) => {
-            log(Error, ObjectHandler, format!("Failed to get duration since UNIX_EPOCH in \"generate_object_id\". Error:\n{}", err));
-            0 // return a default value to let the flow continuing
-        }
-    };
-
-
-
-    let u64_with_msb_00 = now & 0x3FFFFFFFFFFFFFFF; // the mask allow to set two MSB to 00 to rewrite them after
-    // 2 - set é MSB according to the type
-    match id_type {
-        ObjectIdentifierType::USER_GENERATED => {
-            u64_with_msb_00 | 0x0000000000000000
-        }
-        ObjectIdentifierType::BROKER_GENERATED => {
-            u64_with_msb_00 | 0x0100000000000000
-        }
-        ObjectIdentifierType::TEMPORARY => {
-            u64_with_msb_00 | 0x1000000000000000
-        }
-        _ => 0
-    }
 }
 
 /**
@@ -361,48 +211,12 @@ pub async fn unsubscribe_client_to_object(
     {
         OBJECT_SUBSCRIBERS_REF.write().await.entry(object_id)
             .and_modify(|subscribers|{
-            subscribers.remove(&client_id);
-        });
+                subscribers.remove(&client_id);
+            });
     }
 
     Ok(()) // method has successfully ran
 }
-
-/**
- * This method ensure the given objectId
- * is a broker generated id and it still
- * exist.
- *
- * @param object_id: ObjectId, The object identifier
- *
- * @return bool
- */
-pub async fn is_object_id_valid(
-    object_id: ObjectId
-) -> bool
-{
-    let existing_id = {
-        OBJECT_SUBSCRIBERS_REF.read().await.get(&object_id).is_some()
-    };
-
-    return get_object_id_type(object_id) != ObjectIdentifierType::BROKER_GENERATED && existing_id;
-}
-
-/**
- * This method return a tuple off two vec containing
- * added and removed values.
- *
- * @param new_set: &HashSet<TopicId>, The new set containing incoming values
- * @param current_set: &HashSet<TopicId>, the current set containing actual values
- *
- * @return added_values, removed_values: (Vec<TopicId>, Vec<TopicId>): two vectors containing differences from the original set
- */
-pub fn diff_hashsets(new_set: &HashSet<TopicId>, current_set: &HashSet<TopicId>) -> (Vec<TopicId>, Vec<TopicId>) {
-    let added_values = new_set.difference(current_set).cloned().collect();
-    let removed_values = current_set.difference(new_set).cloned().collect();
-    (added_values, removed_values)
-}
-
 
 /**
  *  This method is an helper to get a client sender
@@ -443,5 +257,114 @@ pub async fn get_client_addr(client_id: ClientId) -> Result<SocketAddr, ()>
         Some(value) => {
             Ok(value.clone())
         }
+    }
+}
+
+/**
+ * This method return true if the client was already connected,
+ *  it return the old client id too.
+ *
+ * @param ip: &IpAddr, ip address of the tested client
+ *
+ * @return (bool, ClientId)
+ */
+pub async fn already_connected(
+    ip: & IpAddr,
+) -> (bool, ClientId) {
+    // Use iterator for performance
+    CLIENTS_ADDRESSES_REF.read().await
+        .iter()
+        .find_map(|(key, value)| {
+            if ip == &value.ip() {
+                Some((true, *key))
+            } else {
+                None
+            }
+        })
+        .unwrap_or((false, 0))
+}
+
+/**
+ * This methods return a unique id for a new client.
+ *
+ * @return ClientId
+ */
+pub fn get_new_id() -> ClientId {
+    // Return the XOR operation between the current time and a random u64
+    return (SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Failed to calculate duration since UNIX_EPOCH")
+        .as_nanos() as ClientId) ^ rand::thread_rng().gen::<ClientId>();
+}
+
+
+/**
+ * This methods return the id of the given client and None if the
+ * source is not found.
+ *
+ * @param src: SocketAddr, The searched source.
+ *
+ * @return Option<ClientId>
+ */
+pub async fn get_client_id(
+    src: SocketAddr,
+) -> Option<ClientId> {
+    // Use the iterator for performance.
+    CLIENTS_ADDRESSES_REF.read().await
+        .iter()
+        .find_map(|(&key, &addr)| if addr == src { Some(key) } else { None })
+}
+
+/**
+ * This function return true if the client is currently online.
+ *
+ * @param client_id: ClientId,  The checked client identifier
+ *
+ * @return bool
+ */
+pub async fn is_online(
+    client_id: ClientId,
+) -> bool
+{
+    let clients_read = CLIENTS_SENDERS_REF.read().await;
+    return clients_read.contains_key(&client_id);
+}
+/**
+ * This method will try to remove the client id from all common sets
+ *
+ * @param client_id: ClientId, The client to remove from common hashsets
+ */
+pub async fn try_remove_client_from_set(client_id: ClientId){
+    // 1 - Client sender
+    {
+        CLIENTS_SENDERS_REF.write().await.remove(&client_id);
+    }
+    // 2 - Client address
+    {
+        CLIENTS_ADDRESSES_REF.write().await.remove(&client_id);
+    }
+    // 3 - Client struct
+    {
+        CLIENTS_STRUCTS_REF.write().await.remove(&client_id);
+    }
+    // 4 - Client sender
+    {
+        CLIENTS_SENDERS_REF.write().await.remove(&client_id);
+    }
+    // 5 - Topics subscriber
+    {
+        let mut topics_list_writ = TOPICS_SUBSCRIBERS_REF.write().await;
+
+        topics_list_writ.iter_mut().for_each(|(_, topic_subscribers)| {
+            topic_subscribers.remove(&client_id);
+        });
+    }
+    // 6 - Objects subscriber
+    {
+        let mut objects_list_writ = OBJECT_SUBSCRIBERS_REF.write().await;
+
+        objects_list_writ.iter_mut().for_each(|(_, object_subscribers)| {
+            object_subscribers.remove(&client_id);
+        });
     }
 }

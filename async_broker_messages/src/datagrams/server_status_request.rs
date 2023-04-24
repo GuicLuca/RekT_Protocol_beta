@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types, unused)]
 use crate::enums::message_type::MessageType;
 use crate::libs::common::get_u64_at_pos;
-use crate::types::ClientId;
+use crate::libs::types::ClientId;
 
 //===== Sent to know the server status
 pub struct RQ_ServerStatus {

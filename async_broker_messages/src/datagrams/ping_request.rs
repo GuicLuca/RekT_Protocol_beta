@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types, unused)]
 use crate::enums::message_type::MessageType;
-use crate::types::PingId;
+use crate::libs::types::PingId;
 
 //===== Sent to measure the latency between peer and broker
 pub struct RQ_Ping {

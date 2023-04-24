@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types, unused)]
 use crate::enums::message_type::MessageType;
 use crate::libs::common::{get_u16_at_pos, get_u32_at_pos, get_u64_at_pos};
-use crate::types::Size;
+use crate::libs::types::Size;
 
 pub struct RQ_Data{
     pub message_type: MessageType, // 1 byte

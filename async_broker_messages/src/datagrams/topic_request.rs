@@ -3,7 +3,7 @@ use crate::enums::message_type::MessageType;
 use crate::enums::topics_action::TopicsAction;
 use crate::enums::topics_response::TopicsResponse;
 use crate::libs::common::{get_bytes_from_slice, get_u16_at_pos, get_u64_at_pos};
-use crate::types::Size;
+use crate::libs::types::Size;
 
 //===== Sent to subscribe/unsubscribe to a topic
 pub struct RQ_TopicRequest {

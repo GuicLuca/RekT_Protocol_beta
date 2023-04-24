@@ -11,7 +11,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{Duration};
+use std::time::Duration;
 
 use local_ip_address::local_ip;
 use tokio::{join, net::UdpSocket};
@@ -20,20 +20,12 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 use crate::client::Client;
-use crate::client_lib::{ClientActions, get_client_addr, get_client_sender, now_ms};
-use crate::client_lib::ClientActions::{HandleData, HandleDisconnect, HandleObjectRequest, HandlePong, HandleTopicRequest, StartManagers, UpdateClientLastRequest};
 use crate::config::Config;
-use crate::server_lib::*;
-use crate::server_lib::LogSource::*;
-use crate::types::{ClientId, ClientSender, ClientsHashMap, ObjectHashMap, PingsHashMap, ServerSocket, TopicsHashMap, TopicId};
+use libs::types::{ClientId, ClientSender, ClientsHashMap, ObjectHashMap, PingsHashMap, ServerSocket, TopicId, TopicsHashMap};
 
 mod config;
 mod datagrams;
-
-mod server_lib;
 mod client;
-mod client_lib;
-mod types;
 mod enums;
 mod libs;
 
@@ -42,9 +34,15 @@ use crate::datagrams::connect_request::RQ_Connect_ACK_OK;
 use crate::datagrams::ping_request::RQ_Ping;
 use crate::datagrams::server_status_request::RQ_ServerStatus_ACK;
 use crate::datagrams::shutdown_request::RQ_Shutdown;
+use crate::enums::client_actions::ClientActions;
+use crate::enums::client_actions::ClientActions::{HandleData, HandleDisconnect, HandleObjectRequest, HandlePong, HandleTopicRequest, StartManagers, UpdateClientLastRequest};
 use crate::enums::end_connexion_reason::EndConnexionReason::*;
 use crate::enums::log_level::LogLevel::*;
+use crate::enums::log_source::LogSource::*;
 use crate::enums::message_type::{display_message_type, MessageType};
+use crate::libs::client::{already_connected, get_client_addr, get_client_id, get_client_sender, get_new_id, is_online, try_remove_client_from_set};
+use crate::libs::common::{log, now_ms};
+use crate::libs::server::{get_new_ping_reference, send_datagram, update_server_status};
 
 
 

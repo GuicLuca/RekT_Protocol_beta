@@ -4,7 +4,7 @@ use std::mem::size_of;
 use crate::enums::message_type::MessageType;
 use crate::enums::object_flags::ObjectFlags;
 use crate::libs::common::{get_bytes_from_slice, get_u16_at_pos, get_u64_at_pos};
-use crate::types::{ObjectId, Size};
+use crate::libs::types::{ObjectId, Size};
 
 //===== Sent to acknowledge a TOPIC_REQUEST
 pub struct RQ_ObjectRequest{

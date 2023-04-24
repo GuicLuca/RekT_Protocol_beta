@@ -14,24 +14,26 @@ use tokio::sync::mpsc::{Receiver};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
-use crate::client_lib::{client_has_sent_life_sign, ClientActions, diff_hashsets, generate_object_id, get_client_addr, get_client_sender, get_object_id_type, is_object_id_valid, now_ms, subscribe_client_to_object, unsubscribe_client_to_object, vec_to_u8};
-use crate::client_lib::ClientActions::*;
 use crate::{CLIENTS_ADDRESSES_REF, CLIENTS_SENDERS_REF, CLIENTS_STRUCTS_REF, CONFIG, ISRUNNING, OBJECT_SUBSCRIBERS_REF, OBJECTS_TOPICS_REF, PINGS_REF, TOPICS_SUBSCRIBERS_REF};
 use crate::datagrams::data_request::RQ_Data;
 use crate::datagrams::heartbeat_request::{RQ_Heartbeat, RQ_Heartbeat_Request};
 use crate::datagrams::object_request::{RQ_ObjectRequest, RQ_ObjectRequest_NACK, RQ_ObjectRequestCreate_ACK, RQ_ObjectRequestDefault_ACK};
 use crate::datagrams::shutdown_request::RQ_Shutdown;
 use crate::datagrams::topic_request::{RQ_TopicRequest, RQ_TopicRequest_ACK, RQ_TopicRequest_NACK};
+use crate::enums::client_actions::ClientActions;
+use crate::enums::client_actions::ClientActions::{AddSubscribedObject, AddSubscribedTopic, Get, HandleData, HandleDisconnect, HandleObjectRequest, HandlePong, HandleTopicRequest, RemoveSubscribedObject, RemoveSubscribedTopic, StartManagers, UpdateClientLastRequest, UpdateServerLastRequest};
 use crate::enums::end_connexion_reason::EndConnexionReason;
 use crate::enums::end_connexion_reason::EndConnexionReason::SYNC_ERROR;
 use crate::enums::log_level::LogLevel::{Error, Info, Warning};
+use crate::enums::log_source::LogSource::{ClientManager, DataHandler, HeartbeatChecker, ObjectHandler, Other, TopicHandler};
 use crate::enums::object_flags::ObjectFlags;
 use crate::enums::object_identifier_type::ObjectIdentifierType;
 use crate::enums::topics_action::TopicsAction;
 use crate::enums::topics_response::TopicsResponse;
-use crate::server_lib::*;
-use crate::server_lib::LogSource::*;
-use crate::types::{ClientId, ObjectId, ServerSocket, TopicId};
+use crate::libs::client::{client_has_sent_life_sign, get_client_addr, get_client_sender, is_online, subscribe_client_to_object, unsubscribe_client_to_object};
+use crate::libs::common::{diff_hashsets, log, now_ms, vec_to_u8};
+use crate::libs::server::{generate_object_id, get_object_id_type, is_object_id_valid, send_datagram};
+use crate::libs::types::{ClientId, ObjectId, ServerSocket, TopicId};
 
 #[derive(Debug)]
 pub struct Client {
