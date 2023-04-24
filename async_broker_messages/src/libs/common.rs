@@ -52,7 +52,7 @@ pub fn get_bytes_from_slice(
  */
 pub fn get_u64_at_pos(buffer: &[u8], position: usize) -> Result<u64, &str>
 {
-    let slice = get_bytes_from_slice(buffer, position, position+size_of::<u64>());
+    let slice = get_bytes_from_slice(buffer, position, position+size_of::<u64>()-1);
     if slice.len() != 8 {
         return Err("Slice len is invalid to convert it into an u64.")
     }
@@ -69,7 +69,7 @@ pub fn get_u64_at_pos(buffer: &[u8], position: usize) -> Result<u64, &str>
  */
 pub fn get_u32_at_pos(buffer: &[u8], position: usize) -> Result<u32, &str>
 {
-    let slice = get_bytes_from_slice(buffer, position, position+size_of::<u32>());
+    let slice = get_bytes_from_slice(buffer, position, position+size_of::<u32>()-1);
     if slice.len() != 4 {
         return Err("Slice len is invalid to convert it into an u32.")
     }
@@ -86,7 +86,7 @@ pub fn get_u32_at_pos(buffer: &[u8], position: usize) -> Result<u32, &str>
  */
 pub fn get_u16_at_pos(buffer: &[u8], position: usize) -> Result<u16, &str>
 {
-    let slice = get_bytes_from_slice(buffer, position, position+size_of::<u16>());
+    let slice = get_bytes_from_slice(buffer, position, position+size_of::<u16>()-1);
     if slice.len() != 2 {
         return Err("Slice len is invalid to convert it into an u16.")
     }
