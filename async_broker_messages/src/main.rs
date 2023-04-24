@@ -23,21 +23,28 @@ use crate::client::Client;
 use crate::client_lib::{ClientActions, get_client_addr, get_client_sender, now_ms};
 use crate::client_lib::ClientActions::{HandleData, HandleDisconnect, HandleObjectRequest, HandlePong, HandleTopicRequest, StartManagers, UpdateClientLastRequest};
 use crate::config::Config;
-use crate::config::LogLevel::*;
-use crate::datagram::*;
 use crate::server_lib::*;
 use crate::server_lib::LogSource::*;
 use crate::types::{ClientId, ClientSender, ClientsHashMap, ObjectHashMap, PingsHashMap, ServerSocket, TopicsHashMap, TopicId};
 
 mod config;
-mod datagram;
+mod datagrams;
+
 mod server_lib;
 mod client;
 mod client_lib;
 mod types;
+mod enums;
+mod libs;
 
 use lazy_static::lazy_static;
-use crate::datagram::EndConnexionReason::{SYNC_ERROR};
+use crate::datagrams::connect_request::RQ_Connect_ACK_OK;
+use crate::datagrams::ping_request::RQ_Ping;
+use crate::datagrams::server_status_request::RQ_ServerStatus_ACK;
+use crate::datagrams::shutdown_request::RQ_Shutdown;
+use crate::enums::end_connexion_reason::EndConnexionReason::*;
+use crate::enums::log_level::LogLevel::*;
+use crate::enums::message_type::{display_message_type, MessageType};
 
 
 

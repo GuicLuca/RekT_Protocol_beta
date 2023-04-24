@@ -7,18 +7,7 @@ use std::fs;
 use std::io::Error;
 use serde::{Deserialize, Serialize};
 use toml;
-
-/**
- * LogLevel are used to filter log messages
- */
-#[derive(PartialEq, PartialOrd, Serialize, Deserialize, Debug)]
-pub enum LogLevel {
-    All,
-    Info,
-    Warning,
-    Error,
-    Quiet,
-}
+use crate::enums::log_level::LogLevel;
 
 // Contain the Server table of the toml file
 #[derive(Serialize, Deserialize, Debug)]
